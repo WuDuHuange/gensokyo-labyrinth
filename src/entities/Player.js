@@ -198,8 +198,8 @@ export default class Player extends Entity {
       }
     }
     
-    // 处理位置伤害（反弹型）
-    if (result && result.positions && result.positions.length > 0 && !result.isHoming) {
+    // 处理位置伤害（非穿透/非追踪类由 Player 立即判定）
+    if (result && result.positions && result.positions.length > 0 && !result.isHoming && !result.piercing) {
       this.processSpellCardDamage(result);
     }
     
@@ -217,21 +217,52 @@ export default class Player extends Entity {
    * @param {Object} result 
    */
   processSpellCardDamage(result) {
-    const enemies = this.scene.getEnemiesInPositions(result.positions);
-    
-    for (const enemy of enemies) {
-      const damage = enemy.takeDamage(result.damage);
-      
-      this.scene.events.emit('showDamage', {
-        x: enemy.sprite.x,
-        y: enemy.sprite.y - 20,
-        damage: damage,
-        isHeal: false
-      });
-      
-      if (!enemy.isAlive) {
-        this.scene.events.emit('showMessage', `${enemy.name} 被符卡击败！`);
-        this.scene.removeEnemy(enemy);
+    // 如果是穿透/反弹类符卡，按照命中次数叠加伤害
+    if (result.piercing) {
+      const posKey = p => `${p.x},${p.y}`;
+      const hitCounts = {};
+      for (const p of result.positions) {
+        const k = posKey(p);
+        hitCounts[k] = (hitCounts[k] || 0) + 1;
+      }
+
+      for (const enemy of this.scene.enemies.slice()) {
+        if (!enemy.isAlive) continue;
+        const k = `${enemy.tileX},${enemy.tileY}`;
+        const hits = hitCounts[k] || 0;
+        if (hits <= 0) continue;
+
+        const totalDamage = enemy.takeDamage(result.damage * hits);
+
+        this.scene.events.emit('showDamage', {
+          x: enemy.sprite.x,
+          y: enemy.sprite.y - 20,
+          damage: totalDamage,
+          isHeal: false
+        });
+
+        if (!enemy.isAlive) {
+          this.scene.events.emit('showMessage', `${enemy.name} 被符卡击败！`);
+          this.scene.removeEnemy(enemy);
+        }
+      }
+    } else {
+      const enemies = this.scene.getEnemiesInPositions(result.positions);
+
+      for (const enemy of enemies) {
+        const damage = enemy.takeDamage(result.damage);
+
+        this.scene.events.emit('showDamage', {
+          x: enemy.sprite.x,
+          y: enemy.sprite.y - 20,
+          damage: damage,
+          isHeal: false
+        });
+
+        if (!enemy.isAlive) {
+          this.scene.events.emit('showMessage', `${enemy.name} 被符卡击败！`);
+          this.scene.removeEnemy(enemy);
+        }
       }
     }
   }

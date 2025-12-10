@@ -5,6 +5,7 @@ import { TILE_SIZE, MAP_CONFIG, COLORS } from '../config/gameConfig.js';
 import MapGenerator, { TileType } from '../systems/MapGenerator.js';
 import ActionQueue from '../systems/ActionQueue.js';
 import SpellCardSystem from '../systems/SpellCardSystem.js';
+import FogOfWar from '../systems/FogOfWar.js';
 import Player from '../entities/Player.js';
 import SlowFairy from '../entities/enemies/SlowFairy.js';
 import NormalFairy from '../entities/enemies/NormalFairy.js';
@@ -36,6 +37,76 @@ export default class GameScene extends Phaser.Scene {
     // 视角模式（不消耗行动）
     this.isFreeLookMode = false;
     this.freeLookTarget = { x: 0, y: 0 };
+    // 连续行走按键保持状态
+    this.heldMove = null; // {x, y} or null
+    // 转向提示箭头
+    this.aimArrow = null; // Phaser.GameObjects.Triangle
+  }
+
+  createAimArrow() {
+    if (this.aimArrow && this.aimArrow.scene) return; // already exists
+    // upward-pointing triangle centered at (0,0)
+    const size = 8; // 更小的尺寸
+    // points: left-bottom, top, right-bottom (relative to origin)
+    this.aimArrow = this.add.triangle(0, 0, -size, size, 0, -size, size, size, 0x00ffcc);
+    this.aimArrow.setOrigin(0.5, 0.5); // 确保以中心为锚点，修正错位
+    this.aimArrow.setDepth(20);
+    this.aimArrow.setAlpha(0.95);
+    this.aimArrow.setScale(1);
+
+    // 添加轻微脉冲动画（缩放）以提高提示感
+    // 存储 tween 引用以便在销毁时清理
+    try {
+      this.aimArrowPulseTween = this.tweens.add({
+        targets: this.aimArrow,
+        scale: { from: 1, to: 1.16 },
+        duration: 600,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
+    } catch (e) {
+      // 在极少数环境下 tweens 可能抛错，忽略以保证不阻塞主流程
+      this.aimArrowPulseTween = null;
+    }
+  }
+
+  updateAimArrow(dx, dy) {
+    if (!this.player || (!dx && !dy)) { this.destroyAimArrow(); return; }
+    this.createAimArrow();
+
+    // 动态计算偏移：考虑玩家与箭头的实际像素尺寸，确保箭头不会覆盖角色
+    const playerHalf = Math.max(this.player.sprite.displayWidth || 0, this.player.sprite.displayHeight || 0) / 2 || (TILE_SIZE / 2);
+    // aimArrow 可能刚创建，displayWidth/Height 在大多数情况下可用；回退使用默认 size
+    const arrowHalf = Math.max(this.aimArrow.displayWidth || 0, this.aimArrow.displayHeight || 0) / 2 || 8;
+    const padding = 4; // 角色与箭头之间额外间距
+    const offset = Math.ceil(playerHalf + arrowHalf + padding);
+
+    const px = this.player.sprite.x + dx * offset;
+    const py = this.player.sprite.y + dy * offset;
+
+    this.aimArrow.setPosition(px, py);
+
+    // rotation: triangle initially points up (0,-1), compute angle to (dx,dy)
+    const angle = Math.atan2(dy, dx) + Math.PI / 2;
+    this.aimArrow.setRotation(angle);
+  }
+
+  destroyAimArrow() {
+    if (this.aimArrow) {
+      // 清理 tween
+      try {
+        if (this.aimArrowPulseTween) {
+          this.aimArrowPulseTween.stop();
+          this.aimArrowPulseTween = null;
+        }
+        // 保险起见，移除 scene 中与该对象关联的任何 tween
+        this.tweens.killTweensOf(this.aimArrow);
+      } catch (e) { /* ignore */ }
+
+      try { this.aimArrow.destroy(); } catch (e) { /* ignore */ }
+      this.aimArrow = null;
+    }
   }
 
   create() {
@@ -49,6 +120,15 @@ export default class GameScene extends Phaser.Scene {
     
     // 创建玩家
     this.createPlayer();
+
+    // 初始化战争迷雾系统
+    this.fog = new FogOfWar(this.mapData.width, this.mapData.height);
+    // 可视半径（以格为单位），可根据玩家装备/技能动态调整
+    this.fog.setVisionRadius(6);
+    // 计算初始可见性
+    this.fog.compute(this.mapData.tiles, this.player.tileX, this.player.tileY);
+    // 将迷雾可视效果应用到主视图
+    this.updateFogVisuals();
     
     // 生成敌人
     this.spawnEnemies();
@@ -92,26 +172,30 @@ export default class GameScene extends Phaser.Scene {
    */
   renderMap() {
     const { tiles, width, height } = this.mapData;
-    
+
+    // 保存瓦片 sprite 引用，便于迷雾时调整可见性
+    this.tileSprites = [];
     for (let y = 0; y < height; y++) {
+      this.tileSprites[y] = new Array(width);
       for (let x = 0; x < width; x++) {
         const tileType = tiles[y][x];
         const posX = x * TILE_SIZE;
         const posY = y * TILE_SIZE;
-        
+        let spr = null;
+
         if (tileType === TileType.WALL) {
-          const wall = this.add.sprite(posX + TILE_SIZE / 2, posY + TILE_SIZE / 2, 'wall');
-          this.wallLayer.add(wall);
+          spr = this.add.sprite(posX + TILE_SIZE / 2, posY + TILE_SIZE / 2, 'wall');
+          this.wallLayer.add(spr);
         } else {
-          // 地板
-          const floor = this.add.sprite(posX + TILE_SIZE / 2, posY + TILE_SIZE / 2, 'floor');
-          this.floorLayer.add(floor);
-          
+          // 地板（包括出口/出生点）
+          spr = this.add.sprite(posX + TILE_SIZE / 2, posY + TILE_SIZE / 2, 'floor');
+          this.floorLayer.add(spr);
+
           // 出口
           if (tileType === TileType.EXIT) {
             const exit = this.add.sprite(posX + TILE_SIZE / 2, posY + TILE_SIZE / 2, 'exit');
             exit.setDepth(1);
-            
+            this.floorLayer.add(exit);
             // 出口闪烁动画
             this.tweens.add({
               targets: exit,
@@ -122,12 +206,68 @@ export default class GameScene extends Phaser.Scene {
             });
           }
         }
+
+        if (spr) {
+          spr.setOrigin(0.5, 0.5);
+          this.tileSprites[y][x] = { sprite: spr, type: tileType };
+        } else {
+          this.tileSprites[y][x] = null;
+        }
       }
     }
-    
+
     // 设置深度
     this.floorLayer.setDepth(0);
     this.wallLayer.setDepth(1);
+  }
+
+  /**
+   * 根据 fog 可见性调整主视图瓦片与实体的显隐/alpha
+   */
+  updateFogVisuals() {
+    if (!this.fog || !this.tileSprites) return;
+    const visible = this.fog.getVisible();
+    const explored = this.fog.getExplored();
+    const h = this.tileSprites.length;
+    const w = this.tileSprites[0] ? this.tileSprites[0].length : 0;
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const cell = this.tileSprites[y][x];
+        if (!cell || !cell.sprite) continue;
+
+        const isVisible = visible && visible[y] ? !!visible[y][x] : false;
+        const isExplored = explored && explored[y] ? !!explored[y][x] : false;
+
+        if (isVisible) {
+          cell.sprite.setAlpha(1);
+          cell.sprite.setVisible(true);
+        } else if (isExplored) {
+          cell.sprite.setAlpha(0.22);
+          cell.sprite.setVisible(true);
+        } else {
+          // 未探索：隐藏或极暗
+          cell.sprite.setAlpha(0);
+          cell.sprite.setVisible(false);
+        }
+      }
+    }
+
+    // 实体（敌人）在不可见格子里隐藏
+    if (this.enemies) {
+      for (const e of this.enemies) {
+        try {
+          const tx = e.tileX, ty = e.tileY;
+          const isVis = visible && visible[ty] ? !!visible[ty][tx] : false;
+          e.sprite.setVisible(!!isVis && e.isAlive);
+        } catch (ex) { /* ignore */ }
+      }
+    }
+
+    // 玩家自己始终可见
+    if (this.player && this.player.sprite) {
+      this.player.sprite.setVisible(true);
+    }
   }
 
   /**
@@ -241,17 +381,54 @@ export default class GameScene extends Phaser.Scene {
     // 处理自由视角模式
     if (this.handleFreeLookMode()) return;
     
+    // 如果按住 Q（转向模式），在主角身边显示指向箭头
+    if (this.turnKey && this.turnKey.isDown && this.player) {
+      // 优先使用按键输入方向，否则使用玩家当前朝向
+      const upDown = this.cursors.up.isDown || this.wasd.W.isDown;
+      const downDown = this.cursors.down.isDown || this.wasd.S.isDown;
+      const leftDown = this.cursors.left.isDown || this.wasd.A.isDown;
+      const rightDown = this.cursors.right.isDown || this.wasd.D.isDown;
+
+      let dx = 0, dy = 0;
+      if (upDown && !downDown) dy = -1;
+      else if (downDown && !upDown) dy = 1;
+      if (leftDown && !rightDown) dx = -1;
+      else if (rightDown && !leftDown) dx = 1;
+
+      if (dx === 0 && dy === 0) {
+        dx = this.player.facing.x;
+        dy = this.player.facing.y;
+      }
+
+      this.updateAimArrow(dx, dy);
+    } else {
+      this.destroyAimArrow();
+    }
+    
     // 获取当前行动者
     const actor = this.actionQueue.tick();
     
     if (!actor) return;
     
     if (actor.isPlayer) {
-      // 玩家回合 - 等待输入
-      this.handlePlayerInput();
+      // 玩家回合 - 先处理快捷按键/按下触发的即时操作
+      const acted = this.handlePlayerInput();
+
+      // 如果本帧没有产生其他行动，并且存在按住的方向，则自动移动（连续行走）
+      // 但当处于转向（Q）模式时不要自动移动
+      if (!acted && !this.isProcessingTurn && this.heldMove && !this.turnKey.isDown) {
+        this.processPlayerMove(this.heldMove.x, this.heldMove.y);
+      }
     } else {
-      // 敌人回合 - 自动行动
-      this.processEnemyTurn(actor);
+      // 敌人回合 - 并行处理所有可行动的敌人（以减少串行等待）
+      const actionable = this.actionQueue.getActionableEntities().filter(e => !e.isPlayer && e.isAlive);
+      if (actionable.length <= 1) {
+        // 只有一个敌人可行动，保持原有行为
+        this.processEnemyTurn(actor);
+      } else {
+        // 批量并行执行敌人行为（不改变各自内部的伤害/死亡逻辑）
+        this.processEnemyBatch(actionable);
+      }
     }
   }
 
@@ -321,6 +498,7 @@ export default class GameScene extends Phaser.Scene {
   /**
    * 处理玩家输入
    */
+  // 返回值：若本次输入触发了行动（移动/使用符卡/等待等）则返回 true
   handlePlayerInput() {
     let dx = 0;
     let dy = 0;
@@ -329,52 +507,75 @@ export default class GameScene extends Phaser.Scene {
     // 检测是否按住Q键（转向模式，不消耗行动）
     const isTurnMode = this.turnKey.isDown;
     
-    // 八向移动输入 - 同时检测多个方向键
+    // 八向移动输入 - 支持按下持续（isDown）与即时触发（JustDown）
+    const upDown = this.cursors.up.isDown || this.wasd.W.isDown;
+    const downDown = this.cursors.down.isDown || this.wasd.S.isDown;
+    const leftDown = this.cursors.left.isDown || this.wasd.A.isDown;
+    const rightDown = this.cursors.right.isDown || this.wasd.D.isDown;
+
     const upPressed = Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.W);
     const downPressed = Phaser.Input.Keyboard.JustDown(this.cursors.down) || Phaser.Input.Keyboard.JustDown(this.wasd.S);
     const leftPressed = Phaser.Input.Keyboard.JustDown(this.cursors.left) || Phaser.Input.Keyboard.JustDown(this.wasd.A);
     const rightPressed = Phaser.Input.Keyboard.JustDown(this.cursors.right) || Phaser.Input.Keyboard.JustDown(this.wasd.D);
     
     // 计算方向
+    // 优先使用即时触发（JustDown）来获得响应性
     if (upPressed) dy = -1;
-    if (downPressed) dy = 1;
+    else if (downPressed) dy = 1;
     if (leftPressed) dx = -1;
-    if (rightPressed) dx = 1;
+    else if (rightPressed) dx = 1;
+
+    // 若没有即时按下但存在按住（长按），将 heldMove 设置为持续方向（但不立即执行移动）
+    if (!upPressed && !downPressed && !leftPressed && !rightPressed) {
+      if (upDown || downDown || leftDown || rightDown) {
+        const holdDx = leftDown ? -1 : (rightDown ? 1 : 0);
+        const holdDy = upDown ? -1 : (downDown ? 1 : 0);
+        // 仅在非转向模式时记录 heldMove，转向模式应只改变朝向而不移动
+        if (!isTurnMode) {
+          this.heldMove = (holdDx !== 0 || holdDy !== 0) ? { x: holdDx, y: holdDy } : null;
+        } else {
+          this.heldMove = null;
+        }
+      } else {
+        this.heldMove = null;
+      }
+    } else {
+      // 有即时按键触发，清除 heldMove（按下瞬间优先立即移动）
+      this.heldMove = null;
+    }
     
     // 如果是转向模式（按住Q），只转向不移动
     if (isTurnMode && (dx !== 0 || dy !== 0)) {
       this.player.setFacing(dx, dy);
       this.events.emit('showMessage', `转向: ${this.getDirectionName(dx, dy)}`);
-      return; // 不消耗行动
+      return false; // 不消耗行动
     }
     
     // 符卡输入
     if (Phaser.Input.Keyboard.JustDown(this.spellKeys.Z)) {
-      if (this.player.useSpellCard(0)) {
-        acted = true;
-      }
+      if (this.player.useSpellCard(0)) acted = true;
     } else if (Phaser.Input.Keyboard.JustDown(this.spellKeys.X)) {
-      if (this.player.useSpellCard(1)) {
-        acted = true;
-      }
+      if (this.player.useSpellCard(1)) acted = true;
     } else if (Phaser.Input.Keyboard.JustDown(this.spellKeys.C)) {
-      if (this.player.useSpellCard(2)) {
-        acted = true;
-      }
+      if (this.player.useSpellCard(2)) acted = true;
     }
     
     // 等待
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
       this.player.wait();
       acted = true;
+      this.heldMove = null;
     }
     
-    // 移动
+    // 移动（即时按键触发）
     if (dx !== 0 || dy !== 0) {
       this.processPlayerMove(dx, dy);
+      acted = true;
     } else if (acted) {
       this.endPlayerTurn();
     }
+
+    return acted;
   }
 
   /**
@@ -386,6 +587,12 @@ export default class GameScene extends Phaser.Scene {
     const moved = await this.player.move(dx, dy);
     
     if (moved) {
+      // 玩家移动后更新迷雾再结束回合/更新UI
+      if (this.fog) {
+        this.fog.compute(this.mapData.tiles, this.player.tileX, this.player.tileY);
+        // 更新主视图和小地图
+        this.updateFogVisuals();
+      }
       this.endPlayerTurn();
     }
     
@@ -399,6 +606,8 @@ export default class GameScene extends Phaser.Scene {
     this.player.onTurnEnd();
     this.spellCardSystem.reduceCooldowns();
     this.actionQueue.endAction(this.player);
+    // 每当玩家回合结束，处理结界的持续效果（按回合计时、对范围内敌人造成伤害）
+    if (this.processBarriers) this.processBarriers();
     this.updateUI();
   }
 
@@ -419,6 +628,39 @@ export default class GameScene extends Phaser.Scene {
     this.updateUI();
     this.isProcessingTurn = false;
   }
+
+  /**
+   * 并行处理一批敌人的行为（不改变伤害/死亡逻辑）
+   * @param {Array<Entity>} enemies
+   */
+  async processEnemyBatch(enemies) {
+    this.isProcessingTurn = true;
+
+    // 启动所有敌人的 act()（返回 promise），并并行等待
+    const promises = enemies.map(e => e.act(this.player));
+
+    try {
+      await Promise.all(promises);
+    } catch (e) {
+      // 若个别行为抛出错误，记录但继续处理
+      console.error('Error during enemy batch actions', e);
+    }
+
+    // 所有行为完成后统一结束它们的行动并更新 UI
+    for (const e of enemies.slice()) {
+      // 如果敌人在行动中死亡，removeEnemy 内会调用 actionQueue.removeEntity
+      this.actionQueue.endAction(e);
+    }
+
+    // 检查玩家死亡
+    if (!this.player.isAlive) {
+      this.gameOver();
+    }
+
+    this.updateUI();
+    this.isProcessingTurn = false;
+  }
+  
 
   /**
    * 检查是否可以移动到指定位置
@@ -535,12 +777,13 @@ export default class GameScene extends Phaser.Scene {
       turn: this.actionQueue.getTurnCount()
     });
     
-    // 更新小地图
+    // 更新小地图（包含迷雾数据）
     this.events.emit('updateMinimap', {
       mapData: this.mapData,
       player: this.player,
       enemies: this.enemies,
-      exitPoint: this.mapData.exitPoint
+      exitPoint: this.mapData.exitPoint,
+      fog: this.fog ? { explored: this.fog.getExplored(), visible: this.fog.getVisible() } : null
     });
   }
 

@@ -2,6 +2,7 @@
  * UI场景 - 显示游戏HUD
  */
 import { PLAYER_CONFIG } from '../config/gameConfig.js';
+import { TileType } from '../systems/MapGenerator.js';
 
 export default class UIScene extends Phaser.Scene {
   constructor() {
@@ -199,42 +200,65 @@ export default class UIScene extends Phaser.Scene {
     const offsetX = this.minimapX + 5;
     const offsetY = this.minimapY + 5;
     
-    // 绘制已探索区域（简化：只显示玩家周围和房间）
-    // 绘制房间
-    if (mapData.rooms) {
-      this.minimapGraphics.fillStyle(0x2a2a4a, 1);
-      for (const room of mapData.rooms) {
+    // 使用迷雾信息绘制瓦片：只显示已探索的地板，当前可见用亮色，已探索但不可见用暗色
+    const fog = data.fog || null;
+    for (let y = 0; y < mapHeight; y++) {
+      for (let x = 0; x < mapWidth; x++) {
+        const tile = (mapData.tiles[y] && mapData.tiles[y][x]) ? mapData.tiles[y][x] : TileType.WALL;
+        if (tile !== TileType.FLOOR && tile !== TileType.SPAWN && tile !== TileType.EXIT) continue;
+
+        const explored = fog && fog.explored && fog.explored[y] ? !!fog.explored[y][x] : true;
+        const visible = fog && fog.visible && fog.visible[y] ? !!fog.visible[y][x] : true;
+
+        if (!explored) continue; // 未探索则不绘制
+
+        if (visible) this.minimapGraphics.fillStyle(0x6b88ff, 1); // 可见：亮蓝色（走廊/房间）
+        else this.minimapGraphics.fillStyle(0x2b2b3b, 1); // 已探索但不可见：暗色
+
         this.minimapGraphics.fillRect(
-          offsetX + room.x * scale,
-          offsetY + room.y * scale,
-          room.width * scale,
-          room.height * scale
+          offsetX + x * scale,
+          offsetY + y * scale,
+          Math.max(1, scale),
+          Math.max(1, scale)
         );
       }
     }
     
-    // 绘制出口
+    // 绘制出口（遵循迷雾：仅在已探索时显示，可见时更亮）
     if (exitPoint) {
-      this.minimapGraphics.fillStyle(0x00ff88, 1);
-      this.minimapGraphics.fillRect(
-        offsetX + exitPoint.x * scale - 2,
-        offsetY + exitPoint.y * scale - 2,
-        4,
-        4
-      );
+      const ex = exitPoint.x;
+      const ey = exitPoint.y;
+      const exploredExit = fog && fog.explored && fog.explored[ey] ? !!fog.explored[ey][ex] : true;
+      const visibleExit = fog && fog.visible && fog.visible[ey] ? !!fog.visible[ey][ex] : true;
+      if (exploredExit) {
+        this.minimapGraphics.fillStyle(visibleExit ? 0x00ff88 : 0x007a44, 1);
+        this.minimapGraphics.fillRect(
+          offsetX + ex * scale - 2,
+          offsetY + ey * scale - 2,
+          4,
+          4
+        );
+      }
     }
-    
-    // 绘制敌人
+
+    // 绘制敌人（仅在当前可见时显示，迷雾遮挡敌人）
     if (enemies) {
       this.minimapGraphics.fillStyle(0xff6666, 1);
       for (const enemy of enemies) {
-        if (enemy.isAlive) {
-          this.minimapGraphics.fillRect(
-            offsetX + enemy.tileX * scale - 1,
-            offsetY + enemy.tileY * scale - 1,
-            2,
-            2
-          );
+        try {
+          const ex = enemy.tileX;
+          const ey = enemy.tileY;
+          const isVis = fog && fog.visible && fog.visible[ey] ? !!fog.visible[ey][ex] : true;
+          if (enemy.isAlive && isVis) {
+            this.minimapGraphics.fillRect(
+              offsetX + ex * scale - 1,
+              offsetY + ey * scale - 1,
+              2,
+              2
+            );
+          }
+        } catch (e) {
+          // ignore invalid enemy data
         }
       }
     }
@@ -325,11 +349,23 @@ export default class UIScene extends Phaser.Scene {
 
   showDamageNumber(data) {
     const { x, y, damage, isHeal } = data;
-    
+
+    // 把 GameScene 的世界坐标转换为 UI 场景坐标（考虑摄像机滚动）
+    let screenX = x;
+    let screenY = y;
+    const gameScene = this.scene.get('GameScene');
+    if (gameScene && gameScene.cameras && gameScene.cameras.main) {
+      const cam = gameScene.cameras.main;
+      screenX = x - cam.worldView.x;
+      screenY = y - cam.worldView.y;
+    }
+
     const color = isHeal ? '#00ff00' : '#ff0000';
     const prefix = isHeal ? '+' : '-';
-    
-    const damageText = this.add.text(x, y, `${prefix}${damage}`, {
+
+    if (!this._damageTexts) this._damageTexts = [];
+
+    const damageText = this.add.text(screenX, screenY, `${prefix}${damage}`, {
       fontSize: '16px',
       fontFamily: 'Arial',
       color: color,
@@ -337,15 +373,35 @@ export default class UIScene extends Phaser.Scene {
       strokeThickness: 2
     }).setOrigin(0.5);
 
-    this.tweens.add({
+    this._damageTexts.push(damageText);
+
+    // 让数字先轻微上弹然后缓慢消失（更舒适的节奏）
+    const tween = this.tweens.add({
       targets: damageText,
-      y: y - 30,
+      y: screenY - 40,
       alpha: 0,
-      duration: 800,
-      ease: 'Power2',
+      duration: 1400,
+      ease: 'Cubic.easeOut',
       onComplete: () => {
-        damageText.destroy();
+        try {
+          const idx = this._damageTexts.indexOf(damageText);
+          if (idx !== -1) this._damageTexts.splice(idx, 1);
+        } catch (e) {}
+        try { damageText.destroy(); } catch (e) {}
       }
+    });
+
+    // 保险回退：若 tween 被中断或未执行，在稍后确保销毁
+    this.time.delayedCall(1600, () => {
+      try {
+        if (damageText && damageText.active) {
+          try {
+            const idx = this._damageTexts.indexOf(damageText);
+            if (idx !== -1) this._damageTexts.splice(idx, 1);
+          } catch (e) {}
+          damageText.destroy();
+        }
+      } catch (e) {}
     });
   }
 }

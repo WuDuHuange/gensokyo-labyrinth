@@ -93,6 +93,14 @@ export default class ActionQueue {
   }
 
   /**
+   * 返回当前所有可行动的实体（AP >= threshold）
+   * @returns {Entity[]}
+   */
+  getActionableEntities() {
+    return this.entities.filter(entity => entity.isAlive && entity.actionPoints >= ACTION_CONFIG.threshold);
+  }
+
+  /**
    * 实体完成行动后调用
    * @param {Entity} entity - 完成行动的实体
    */

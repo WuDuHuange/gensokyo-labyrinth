@@ -69,7 +69,7 @@ export const SPELLCARD_CONFIG = {
     type: 'bounce',
     mpCost: 30,
     cooldown: 4,
-    damage: 18,
+    damage: 30,
     projectileCount: 3,  // 三个阴阳玉
     bounceCount: 3,      // 反弹次数
     range: 6             // 射程

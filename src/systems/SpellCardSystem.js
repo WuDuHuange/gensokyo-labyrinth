@@ -1,12 +1,10 @@
 /**
- * 符卡系统
- * 管理灵梦的符卡技能
+ * SpellCardSystem.js
+ * 干净的、单一实现：使用 Circle/Container 作为投射物，动画到达格子时触发伤害。
  */
+
 import { SPELLCARD_CONFIG, TILE_SIZE } from '../config/gameConfig.js';
 
-/**
- * 符卡基类
- */
 export class SpellCard {
   constructor(scene, config) {
     this.scene = scene;
@@ -23,13 +21,11 @@ export class SpellCard {
   }
 
   use(caster, target) {
-    // 由子类实现
+    // 子类实现
   }
 
   reduceCooldown() {
-    if (this.currentCooldown > 0) {
-      this.currentCooldown--;
-    }
+    if (this.currentCooldown > 0) this.currentCooldown--;
   }
 
   startCooldown() {
@@ -37,9 +33,6 @@ export class SpellCard {
   }
 }
 
-/**
- * 珠符「明珠暗投」- 反弹型：扔出三个会反弹的阴阳玉
- */
 export class MeigyokuAnki extends SpellCard {
   constructor(scene) {
     super(scene, SPELLCARD_CONFIG.meigyokuAnki);
@@ -51,45 +44,33 @@ export class MeigyokuAnki extends SpellCard {
   use(caster, direction) {
     const startX = caster.tileX;
     const startY = caster.tileY;
-    
-    // 三个阴阳玉的初始方向（扇形发射）
     const directions = this.getSpreadDirections(direction);
     const allHitPositions = [];
-    
-    // 为每个阴阳玉计算反弹路径
+
     directions.forEach((dir, index) => {
       const path = this.calculateBouncePath(startX, startY, dir);
       allHitPositions.push(...path);
       this.createYinyangOrb(startX, startY, path, index);
     });
 
-    return {
-      damage: this.damage,
-      positions: allHitPositions,
-      piercing: true
-    };
+    return { damage: this.damage, positions: allHitPositions, piercing: true };
   }
 
   getSpreadDirections(baseDir) {
     const directions = [];
-    
     if (baseDir.x !== 0 && baseDir.y === 0) {
-      // 水平方向
       directions.push({ x: baseDir.x, y: -1 });
       directions.push({ x: baseDir.x, y: 0 });
       directions.push({ x: baseDir.x, y: 1 });
     } else if (baseDir.y !== 0 && baseDir.x === 0) {
-      // 垂直方向
       directions.push({ x: -1, y: baseDir.y });
       directions.push({ x: 0, y: baseDir.y });
       directions.push({ x: 1, y: baseDir.y });
     } else {
-      // 斜向或默认
       directions.push({ x: baseDir.x, y: 0 });
       directions.push({ x: baseDir.x, y: baseDir.y });
       directions.push({ x: 0, y: baseDir.y });
     }
-    
     return directions;
   }
 
@@ -100,20 +81,18 @@ export class MeigyokuAnki extends SpellCard {
     let dx = direction.x;
     let dy = direction.y;
     let bounces = 0;
-    
+
     for (let i = 0; i < this.range * (this.bounceCount + 1); i++) {
       x += dx;
       y += dy;
-      
+
       if (!this.scene.mapManager.isWalkable(x, y)) {
         if (bounces >= this.bounceCount) break;
-        
         bounces++;
-        
-        // 反弹逻辑
+
         const canMoveX = this.scene.mapManager.isWalkable(x, y - dy);
         const canMoveY = this.scene.mapManager.isWalkable(x - dx, y);
-        
+
         if (!canMoveX) {
           dx = -dx;
           x += dx * 2;
@@ -122,82 +101,114 @@ export class MeigyokuAnki extends SpellCard {
           dy = -dy;
           y += dy * 2;
         }
-        
+
         if (!this.scene.mapManager.isWalkable(x, y)) break;
       }
-      
+
       path.push({ x, y });
     }
-    
+
     return path;
   }
 
   createYinyangOrb(startX, startY, path, index) {
-    if (path.length === 0) return;
-    
-    const orb = this.scene.add.graphics();
-    orb.fillStyle(0xffffff, 1);
-    orb.fillCircle(0, 0, 10);
-    orb.fillStyle(0x000000, 1);
-    orb.fillCircle(-3, 0, 5);
-    orb.setPosition(
+    if (!path || path.length === 0) return;
+
+    const white = this.scene.add.circle(0, 0, 14, 0xffffff);
+    const black = this.scene.add.circle(-4, 0, 6, 0x000000);
+    const orb = this.scene.add.container(
       startX * TILE_SIZE + TILE_SIZE / 2,
-      startY * TILE_SIZE + TILE_SIZE / 2
+      startY * TILE_SIZE + TILE_SIZE / 2,
+      [white, black]
     );
-    
+
+    // 注册以便统一清理
+    if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) {
+      this.scene.spellCardSystem.activeOrbs.push(orb);
+    }
+
     let pathIndex = 0;
     const moveNext = () => {
       if (pathIndex >= path.length) {
         this.scene.tweens.add({
           targets: orb,
           alpha: 0,
-          scale: 0.5,
-          duration: 80,
-          onComplete: () => orb.destroy()
+          scale: 0.6,
+          duration: 200,
+          onComplete: () => {
+            if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) {
+              const i = this.scene.spellCardSystem.activeOrbs.indexOf(orb);
+              if (i !== -1) this.scene.spellCardSystem.activeOrbs.splice(i, 1);
+            }
+            try { orb.destroy(true); } catch (e) { try { orb.destroy(); } catch (e) { /* ignore */ } }
+          }
         });
         return;
       }
-      
+
       const target = path[pathIndex];
       this.scene.tweens.add({
         targets: orb,
         x: target.x * TILE_SIZE + TILE_SIZE / 2,
         y: target.y * TILE_SIZE + TILE_SIZE / 2,
-        duration: 35,
+        duration: 160,
         ease: 'Linear',
         onComplete: () => {
           this.createHitEffect(target.x, target.y);
+          this.applyHitDamage(target.x, target.y);
           pathIndex++;
           moveNext();
         }
       });
     };
-    
-    this.scene.time.delayedCall(index * 50, moveNext);
+
+    this.scene.time.delayedCall(index * 120, moveNext);
+  }
+
+  applyHitDamage(tileX, tileY) {
+    if (!this.scene || !this.scene.getEnemyAt) return;
+    const enemy = this.scene.getEnemyAt(tileX, tileY);
+    if (!enemy) return;
+
+    const damage = enemy.takeDamage(this.damage);
+    this.scene.events.emit('showDamage', {
+      x: enemy.sprite.x,
+      y: enemy.sprite.y - 20,
+      damage: damage,
+      isHeal: false
+    });
+
+    if (!enemy.isAlive) {
+      this.scene.events.emit('showMessage', `${enemy.name} 被符卡击败！`);
+      if (this.scene.removeEnemy) this.scene.removeEnemy(enemy);
+    }
   }
 
   createHitEffect(tileX, tileY) {
-    const effect = this.scene.add.graphics();
-    effect.fillStyle(0xffff00, 0.5);
-    effect.fillCircle(
-      tileX * TILE_SIZE + TILE_SIZE / 2,
-      tileY * TILE_SIZE + TILE_SIZE / 2,
-      8
-    );
+    const cx = tileX * TILE_SIZE + TILE_SIZE / 2;
+    const cy = tileY * TILE_SIZE + TILE_SIZE / 2;
+    const effect = this.scene.add.circle(cx, cy, 18, 0xffff66).setAlpha(0.8);
+
+    if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) {
+      this.scene.spellCardSystem.activeOrbs.push(effect);
+    }
 
     this.scene.tweens.add({
       targets: effect,
       alpha: 0,
-      scale: 1.5,
-      duration: 80,
-      onComplete: () => effect.destroy()
+      scale: 2.2,
+      duration: 180,
+      onComplete: () => {
+        try { effect.destroy(); } catch (e) { /* ignore */ }
+        if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) {
+          const i = this.scene.spellCardSystem.activeOrbs.indexOf(effect);
+          if (i !== -1) this.scene.spellCardSystem.activeOrbs.splice(i, 1);
+        }
+      }
     });
   }
 }
 
-/**
- * 梦符「封魔阵」- 结界型：放置结界，敌人进入受伤
- */
 export class Fuumajin extends SpellCard {
   constructor(scene) {
     super(scene, SPELLCARD_CONFIG.fuumajin);
@@ -206,41 +217,23 @@ export class Fuumajin extends SpellCard {
   }
 
   use(caster, direction) {
-    // 结界放置在玩家前方
     let barrierX = caster.tileX + direction.x * 2;
     let barrierY = caster.tileY + direction.y * 2;
-    
-    // 检查位置是否有效
     if (!this.scene.mapManager.isWalkable(barrierX, barrierY)) {
       barrierX = caster.tileX;
       barrierY = caster.tileY;
     }
-    
     this.createBarrier(barrierX, barrierY);
-
-    return {
-      damage: 0,
-      positions: [],
-      piercing: false
-    };
+    return { damage: 0, positions: [], piercing: false };
   }
 
   createBarrier(centerX, centerY) {
     const barrier = this.scene.add.graphics();
-    barrier.lineStyle(3, 0xff6b6b, 0.8);
-    barrier.strokeCircle(
-      centerX * TILE_SIZE + TILE_SIZE / 2,
-      centerY * TILE_SIZE + TILE_SIZE / 2,
-      this.radius * TILE_SIZE + TILE_SIZE / 2
-    );
-    barrier.fillStyle(0xff6b6b, 0.2);
-    barrier.fillCircle(
-      centerX * TILE_SIZE + TILE_SIZE / 2,
-      centerY * TILE_SIZE + TILE_SIZE / 2,
-      this.radius * TILE_SIZE + TILE_SIZE / 2
-    );
+    barrier.lineStyle(3, 0xff6b6b, 0.9);
+    barrier.strokeCircle(centerX * TILE_SIZE + TILE_SIZE / 2, centerY * TILE_SIZE + TILE_SIZE / 2, this.radius * TILE_SIZE + TILE_SIZE / 2);
+    barrier.fillStyle(0xff6b6b, 0.14);
+    barrier.fillCircle(centerX * TILE_SIZE + TILE_SIZE / 2, centerY * TILE_SIZE + TILE_SIZE / 2, this.radius * TILE_SIZE + TILE_SIZE / 2);
 
-    // 符文装饰
     const runes = this.scene.add.graphics();
     runes.lineStyle(2, 0xffffff, 0.6);
     for (let i = 0; i < 6; i++) {
@@ -250,43 +243,14 @@ export class Fuumajin extends SpellCard {
       runes.strokeCircle(runeX, runeY, 5);
     }
 
-    this.scene.tweens.add({
-      targets: runes,
-      angle: 360,
-      duration: 2000,
-      repeat: this.duration - 1,
-      onComplete: () => runes.destroy()
-    });
+    this.scene.tweens.add({ targets: runes, angle: 360, duration: 2000, repeat: this.duration - 1, onComplete: () => runes.destroy() });
+    this.scene.tweens.add({ targets: barrier, alpha: 0.3, duration: 500, yoyo: true, repeat: this.duration * 2 - 1, onComplete: () => barrier.destroy() });
 
-    this.scene.tweens.add({
-      targets: barrier,
-      alpha: 0.3,
-      duration: 500,
-      yoyo: true,
-      repeat: this.duration * 2 - 1,
-      onComplete: () => barrier.destroy()
-    });
-
-    // 注册结界到场景
-    const barrierData = {
-      x: centerX,
-      y: centerY,
-      radius: this.radius,
-      damage: this.damage,
-      duration: this.duration,
-      graphics: barrier,
-      runes: runes
-    };
-    
-    if (this.scene.addBarrier) {
-      this.scene.addBarrier(barrierData);
-    }
+    const barrierData = { x: centerX, y: centerY, radius: this.radius, damage: this.damage, duration: this.duration, graphics: barrier, runes };
+    if (this.scene.addBarrier) this.scene.addBarrier(barrierData);
   }
 }
 
-/**
- * 空符「梦想妙珠」- 追踪型：释放多个追踪光球
- */
 export class MusouMyouji extends SpellCard {
   constructor(scene) {
     super(scene, SPELLCARD_CONFIG.musouMyouji);
@@ -297,73 +261,61 @@ export class MusouMyouji extends SpellCard {
   use(caster) {
     const startX = caster.tileX;
     const startY = caster.tileY;
-    
-    // 获取范围内的敌人
     const enemies = this.scene.getEnemiesInRange(startX, startY, this.range);
-    
-    if (enemies.length === 0) {
+    if (!enemies || enemies.length === 0) {
       this.scene.events.emit('showMessage', '范围内没有敌人！');
       return { damage: 0, positions: [], piercing: false, noTarget: true };
     }
 
     const hitPositions = [];
     const hitEnemies = [];
-    
     for (let i = 0; i < this.projectileCount; i++) {
       const target = enemies[i % enemies.length];
       hitPositions.push({ x: target.tileX, y: target.tileY });
-      if (!hitEnemies.includes(target)) {
-        hitEnemies.push(target);
-      }
+      if (!hitEnemies.includes(target)) hitEnemies.push(target);
       this.createHomingOrb(startX, startY, target, i);
     }
 
-    return {
-      damage: this.damage,
-      positions: hitPositions,
-      piercing: false,
-      isHoming: true,
-      targets: hitEnemies,
-      hitCount: this.projectileCount
-    };
+    return { damage: this.damage, positions: hitPositions, piercing: false, isHoming: true, targets: hitEnemies, hitCount: this.projectileCount };
   }
 
   createHomingOrb(startX, startY, target, index) {
-    const orb = this.scene.add.graphics();
-    
     const colors = [0xff6b6b, 0xffb86b, 0xfff66b, 0x6bff6b, 0x6bffff];
     const color = colors[index % colors.length];
-    
-    orb.fillStyle(color, 0.9);
-    orb.fillCircle(0, 0, 8);
-    orb.fillStyle(0xffffff, 0.8);
-    orb.fillCircle(0, 0, 4);
-    
+    const orbOuter = this.scene.add.circle(0, 0, 8, color);
+    const orbInner = this.scene.add.circle(0, 0, 4, 0xffffff);
+    const container = this.scene.add.container(startX * TILE_SIZE + TILE_SIZE / 2, startY * TILE_SIZE + TILE_SIZE / 2, [orbOuter, orbInner]);
+
+    if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) {
+      this.scene.spellCardSystem.activeOrbs.push(container);
+    }
+
     const angle = (index / this.projectileCount) * Math.PI * 2;
     const offsetX = Math.cos(angle) * 20;
     const offsetY = Math.sin(angle) * 20;
-    
-    orb.setPosition(
-      startX * TILE_SIZE + TILE_SIZE / 2 + offsetX,
-      startY * TILE_SIZE + TILE_SIZE / 2 + offsetY
-    );
+    container.x += offsetX;
+    container.y += offsetY;
 
     this.scene.time.delayedCall(50 + index * 60, () => {
       this.scene.tweens.add({
-        targets: orb,
-        y: orb.y - 20,
-        duration: 100,
+        targets: container,
+        y: container.y - 20,
+        duration: 120,
         ease: 'Quad.easeOut',
         onComplete: () => {
           this.scene.tweens.add({
-            targets: orb,
+            targets: container,
             x: target.tileX * TILE_SIZE + TILE_SIZE / 2,
             y: target.tileY * TILE_SIZE + TILE_SIZE / 2,
-            duration: 150,
+            duration: 160,
             ease: 'Quad.easeIn',
             onComplete: () => {
               this.createImpactEffect(target.tileX, target.tileY, color);
-              orb.destroy();
+              if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) {
+                const i = this.scene.spellCardSystem.activeOrbs.indexOf(container);
+                if (i !== -1) this.scene.spellCardSystem.activeOrbs.splice(i, 1);
+              }
+              try { container.destroy(true); } catch (e) { try { container.destroy(); } catch (e) { /* ignore */ } }
             }
           });
         }
@@ -372,39 +324,31 @@ export class MusouMyouji extends SpellCard {
   }
 
   createImpactEffect(tileX, tileY, color) {
-    const impact = this.scene.add.graphics();
-    impact.fillStyle(color, 0.8);
-    impact.fillCircle(
-      tileX * TILE_SIZE + TILE_SIZE / 2,
-      tileY * TILE_SIZE + TILE_SIZE / 2,
-      12
-    );
-
-    this.scene.tweens.add({
-      targets: impact,
-      alpha: 0,
-      scale: 2,
-      duration: 120,
-      onComplete: () => impact.destroy()
-    });
+    const impact = this.scene.add.circle(tileX * TILE_SIZE + TILE_SIZE / 2, tileY * TILE_SIZE + TILE_SIZE / 2, 12, color).setAlpha(0.9);
+    if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) this.scene.spellCardSystem.activeOrbs.push(impact);
+    this.scene.tweens.add({ targets: impact, alpha: 0, scale: 2, duration: 120, onComplete: () => { try { impact.destroy(); } catch (e) { /* ignore */ } if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) { const i = this.scene.spellCardSystem.activeOrbs.indexOf(impact); if (i !== -1) this.scene.spellCardSystem.activeOrbs.splice(i, 1); } } });
   }
 }
 
-/**
- * 符卡系统管理器
- */
 export default class SpellCardSystem {
   constructor(scene) {
     this.scene = scene;
     this.spellCards = [];
+    this.activeOrbs = [];
   }
 
   initialize() {
     this.spellCards = [
-      new MeigyokuAnki(this.scene),   // Z键 - 反弹型
-      new Fuumajin(this.scene),        // X键 - 结界型
-      new MusouMyouji(this.scene)      // C键 - 追踪型
+      new MeigyokuAnki(this.scene),
+      new Fuumajin(this.scene),
+      new MusouMyouji(this.scene)
     ];
+
+    if (this.scene) this.scene.spellCardSystem = this;
+    if (this.scene && this.scene.events) {
+      this.scene.events.on('shutdown', () => this.destroyAllOrbs());
+      this.scene.events.on('destroy', () => this.destroyAllOrbs());
+    }
   }
 
   getSpellCard(index) {
@@ -412,17 +356,17 @@ export default class SpellCardSystem {
   }
 
   reduceCooldowns() {
-    for (const spell of this.spellCards) {
-      spell.reduceCooldown();
-    }
+    for (const spell of this.spellCards) spell.reduceCooldown();
   }
 
   getStatus() {
-    return this.spellCards.map(spell => ({
-      name: spell.name,
-      mpCost: spell.mpCost,
-      cooldown: spell.currentCooldown,
-      maxCooldown: spell.cooldown
-    }));
+    return this.spellCards.map(spell => ({ name: spell.name, mpCost: spell.mpCost, cooldown: spell.currentCooldown, maxCooldown: spell.cooldown }));
+  }
+
+  destroyAllOrbs() {
+    for (const obj of this.activeOrbs.slice()) {
+      try { if (obj && obj.destroy) obj.destroy(true); } catch (e) { try { obj.destroy(); } catch (e) { /* ignore */ } }
+    }
+    this.activeOrbs.length = 0;
   }
 }

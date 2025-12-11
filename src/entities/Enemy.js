@@ -46,10 +46,7 @@ export default class Enemy extends Entity {
 
       if (distToRoom > ROOM_DETECT_THRESHOLD) {
         // 玩家离房间太远，保持或巡逻而不主动追逐
-        // 同时取消锁定（如果之前没有真正接近过）
-        if (this.lockedOnPlayer && (this.getDistanceTo(player) > this.detectionRange * 2)) {
-          this.lockedOnPlayer = false;
-        }
+        // 注意：不要在玩家短暂离开房间时立即解除锁定，已锁定的敌人应继续追击以防被卡位。
         await this.idle();
         return;
       }
@@ -60,8 +57,8 @@ export default class Enemy extends Entity {
     // 进入检测距离视为锁定开始，可以离开房间追击
     if (distance <= this.detectionRange) {
       this.lockedOnPlayer = true;
-    } else if (distance > this.detectionRange * 2) {
-      // 若玩家远离两倍检测距离，解锁（回归房间约束）
+    } else if (distance > this.detectionRange * 3) {
+      // 只有当玩家远离到检测范围的三倍时，才解除锁定，使玩家不能轻易通过退回房间卡位
       this.lockedOnPlayer = false;
     }
 

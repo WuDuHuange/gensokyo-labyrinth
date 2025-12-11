@@ -14,6 +14,8 @@ export default class Enemy extends Entity {
     this.attackRange = config.attackRange || 1;
     this.expReward = config.expReward || 10;
     this.roomDetectThreshold = config.roomDetectThreshold || 2;
+    // 是否已锁定（开始追逐/攻击玩家），锁定后允许离开房间追击
+    this.lockedOnPlayer = false;
   }
 
   /**
@@ -44,12 +46,24 @@ export default class Enemy extends Entity {
 
       if (distToRoom > ROOM_DETECT_THRESHOLD) {
         // 玩家离房间太远，保持或巡逻而不主动追逐
+        // 同时取消锁定（如果之前没有真正接近过）
+        if (this.lockedOnPlayer && (this.getDistanceTo(player) > this.detectionRange * 2)) {
+          this.lockedOnPlayer = false;
+        }
         await this.idle();
         return;
       }
     }
 
     const distance = this.getDistanceTo(player);
+
+    // 进入检测距离视为锁定开始，可以离开房间追击
+    if (distance <= this.detectionRange) {
+      this.lockedOnPlayer = true;
+    } else if (distance > this.detectionRange * 2) {
+      // 若玩家远离两倍检测距离，解锁（回归房间约束）
+      this.lockedOnPlayer = false;
+    }
 
     // 根据距离决定行为
     if (distance <= this.attackRange) {
@@ -111,7 +125,9 @@ export default class Enemy extends Entity {
     
     // 尝试向玩家移动
     // 优先选择距离更近的方向
-    const moves = this.getPossibleMoves(player);
+    // 如果未锁定玩家且有房间信息，限制可移动格子保持在房间范围
+    const restrictToRoom = !!this.room && !this.lockedOnPlayer;
+    const moves = this.getPossibleMoves(player, restrictToRoom);
     
     if (moves.length > 0) {
       // 选择最优移动
@@ -125,7 +141,11 @@ export default class Enemy extends Entity {
    * @param {Player} player 
    * @returns {Array}
    */
-  getPossibleMoves(player) {
+  /**
+   * 获取可能的移动选项，按优先级排序
+   * 可选参数：restrictToRoom - 是否限制返回仅在所属房间内的移动
+   */
+  getPossibleMoves(player, restrictToRoom = false) {
     const directions = [
       { x: 0, y: -1 },  // 上
       { x: 0, y: 1 },   // 下
@@ -143,6 +163,13 @@ export default class Enemy extends Entity {
       if (this.scene.canMoveTo(newX, newY) && !this.scene.getEnemyAt(newX, newY)) {
         // 如果目标位置是玩家位置，跳过（应该攻击而不是移动）
         if (newX === player.tileX && newY === player.tileY) continue;
+
+        // 若要求限制在房间内，则跳过房间外的移动
+        if (restrictToRoom && this.room) {
+          if (newX < this.room.x || newX >= this.room.x + this.room.width || newY < this.room.y || newY >= this.room.y + this.room.height) {
+            continue;
+          }
+        }
         
         // 计算移动后到玩家的距离
         const newDistance = Math.abs(newX - player.tileX) + Math.abs(newY - player.tileY);
@@ -177,7 +204,13 @@ export default class Enemy extends Entity {
       for (const dir of directions) {
         const newX = this.tileX + dir.x;
         const newY = this.tileY + dir.y;
-        
+        // 如果未锁定玩家且有所属房间信息，则不允许走出房间
+        if (!this.lockedOnPlayer && this.room) {
+          if (newX < this.room.x || newX >= this.room.x + this.room.width || newY < this.room.y || newY >= this.room.y + this.room.height) {
+            continue;
+          }
+        }
+
         if (this.scene.canMoveTo(newX, newY) && !this.scene.getEnemyAt(newX, newY)) {
           await this.moveTo(newX, newY);
           break;

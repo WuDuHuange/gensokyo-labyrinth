@@ -267,4 +267,13 @@ export default class SlowFairy extends Enemy {
       });
     });
   }
+
+  // 覆盖死亡处理，确保在死亡时清理任何瞄准线或残留视觉
+  die() {
+    // 取消瞄准状态并移除瞄准线
+    this.isAiming = false;
+    try { this.clearAimGraphics(); } catch (e) {}
+    // 调用父类死亡逻辑（动画 + 销毁精灵）
+    try { super.die(); } catch (e) { /* ignore */ }
+  }
 }

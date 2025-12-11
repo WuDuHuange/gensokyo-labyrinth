@@ -157,13 +157,13 @@ export default class UIScene extends Phaser.Scene {
     this.minimapY = 115;
     this.minimapSize = minimapSize;
 
-    // 小地图背景
-    const minimapBg = this.add.graphics();
-    minimapBg.fillStyle(0x000000, 0.8);
-    minimapBg.fillRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 15, 8);
-    
-    // 标题
-    this.add.text(this.minimapX + minimapSize / 2, this.minimapY - 10, '小地图 [TAB查看]', {
+    // 小地图背景（保存为实例属性以便拖拽）
+    this.minimapBg = this.add.graphics();
+    this.minimapBg.fillStyle(0x000000, 0.8);
+    this.minimapBg.fillRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 15, 8);
+
+    // 标题（保存引用以便更新位置）
+    this.minimapTitle = this.add.text(this.minimapX + minimapSize / 2, this.minimapY - 10, '小地图 [TAB查看]', {
       fontSize: '9px',
       fontFamily: 'Arial',
       color: '#888888'
@@ -175,10 +175,52 @@ export default class UIScene extends Phaser.Scene {
     // 获取游戏场景引用
     const gameScene = this.scene.get('GameScene');
     
+    // 保存最后一次小地图数据以便拖动时重绘
+    this._lastMinimapData = null;
     // 监听小地图更新事件
     gameScene.events.on('updateMinimap', (data) => {
+      this._lastMinimapData = data;
       this.drawMinimap(data);
     });
+
+    // 使小地图背景可交互并可拖拽
+    try {
+      this.minimapBg.setInteractive(new Phaser.Geom.Rectangle(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 15), Phaser.Geom.Rectangle.Contains);
+      this.input.setDraggable(this.minimapBg);
+
+      this.input.on('dragstart', (pointer, gameObject) => {
+        if (gameObject !== this.minimapBg) return;
+        this._minimapDragOffsetX = pointer.x - this.minimapX;
+        this._minimapDragOffsetY = pointer.y - this.minimapY;
+      });
+
+      this.input.on('drag', (pointer, gameObject) => {
+        if (gameObject !== this.minimapBg) return;
+        const camW = this.cameras.main.width;
+        const camH = this.cameras.main.height;
+        let nx = pointer.x - this._minimapDragOffsetX;
+        let ny = pointer.y - this._minimapDragOffsetY;
+        // 边界约束
+        nx = Phaser.Math.Clamp(nx, 0, camW - minimapSize);
+        ny = Phaser.Math.Clamp(ny, 20, camH - minimapSize);
+        this.minimapX = nx;
+        this.minimapY = ny;
+
+        // 重新绘制背景与标题位置
+        this.minimapBg.clear();
+        this.minimapBg.fillStyle(0x000000, 0.8);
+        this.minimapBg.fillRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 15, 8);
+        this.minimapTitle.setPosition(this.minimapX + minimapSize / 2, this.minimapY - 10);
+
+        // 重新设置 interactive 区域（因为位置改变）
+        try { this.minimapBg.input.hitArea.setTo(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 15); } catch (e) {}
+
+        // 重新绘制小地图内容
+        if (this._lastMinimapData) this.drawMinimap(this._lastMinimapData);
+      });
+    } catch (e) {
+      // 如果运行环境不支持交互（极少数情况），忽略拖拽功能
+    }
   }
 
   /**

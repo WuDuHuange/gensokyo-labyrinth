@@ -33,7 +33,8 @@ export const ENEMY_CONFIG = {
     hp: 30,
     attack: 8,
     defense: 2,
-    expReward: 10
+    expReward: 10,
+    roomDetectThreshold: 2
   },
   normalFairy: {
     name: '普通妖精',
@@ -41,7 +42,8 @@ export const ENEMY_CONFIG = {
     hp: 40,
     attack: 10,
     defense: 3,
-    expReward: 15
+    expReward: 15,
+    roomDetectThreshold: 2
   },
   fastFairy: {
     name: '快速妖精',
@@ -49,7 +51,8 @@ export const ENEMY_CONFIG = {
     hp: 25,
     attack: 12,
     defense: 1,
-    expReward: 20
+    expReward: 20,
+    roomDetectThreshold: 3
   },
   danmakuFairy: {
     name: '弹幕妖精',
@@ -57,7 +60,8 @@ export const ENEMY_CONFIG = {
     hp: 35,
     attack: 15,
     defense: 2,
-    expReward: 25
+    expReward: 25,
+    roomDetectThreshold: 4
   }
 };
 

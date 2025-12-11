@@ -159,5 +159,12 @@ export default class BootScene extends Phaser.Scene {
     enemyBulletGraphics.fillCircle(8, 8, 3);
     enemyBulletGraphics.generateTexture('enemyBullet', 16, 16);
     enemyBulletGraphics.destroy();
+
+    // 创建粒子贴图 spark（用于激光冲击特效）
+    const sparkGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    sparkGraphics.fillStyle(0xffdd66);
+    sparkGraphics.fillCircle(4, 4, 4);
+    sparkGraphics.generateTexture('spark', 8, 8);
+    sparkGraphics.destroy();
   }
 }

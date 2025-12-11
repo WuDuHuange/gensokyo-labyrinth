@@ -13,6 +13,7 @@ export default class Enemy extends Entity {
     this.detectionRange = config.detectionRange || 8;
     this.attackRange = config.attackRange || 1;
     this.expReward = config.expReward || 10;
+    this.roomDetectThreshold = config.roomDetectThreshold || 2;
   }
 
   /**
@@ -22,8 +23,34 @@ export default class Enemy extends Entity {
   async act(player) {
     if (!this.isAlive || !player.isAlive) return;
     
+    // 如果该敌人有绑定的房间信息，则要求玩家先接近房间才会触发索敌/追逐
+    const ROOM_DETECT_THRESHOLD = this.roomDetectThreshold || 2;
+    if (this.room) {
+      const px = player.tileX;
+      const py = player.tileY;
+      const rx1 = this.room.x - ROOM_DETECT_THRESHOLD;
+      const ry1 = this.room.y - ROOM_DETECT_THRESHOLD;
+      const rx2 = this.room.x + this.room.width - 1 + ROOM_DETECT_THRESHOLD;
+      const ry2 = this.room.y + this.room.height - 1 + ROOM_DETECT_THRESHOLD;
+
+      // 计算玩家到房间边界的曼哈顿距离（如果在扩展矩形内则为 0）
+      let dx = 0;
+      if (px < rx1) dx = rx1 - px;
+      else if (px > rx2) dx = px - rx2;
+      let dy = 0;
+      if (py < ry1) dy = ry1 - py;
+      else if (py > ry2) dy = py - ry2;
+      const distToRoom = dx + dy;
+
+      if (distToRoom > ROOM_DETECT_THRESHOLD) {
+        // 玩家离房间太远，保持或巡逻而不主动追逐
+        await this.idle();
+        return;
+      }
+    }
+
     const distance = this.getDistanceTo(player);
-    
+
     // 根据距离决定行为
     if (distance <= this.attackRange) {
       // 在攻击范围内，攻击玩家

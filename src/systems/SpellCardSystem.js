@@ -44,16 +44,38 @@ export class MeigyokuAnki extends SpellCard {
   use(caster, direction) {
     const startX = caster.tileX;
     const startY = caster.tileY;
-    const directions = this.getSpreadDirections(direction);
+    const baseDir = { x: direction.x, y: direction.y };
     const allHitPositions = [];
 
-    directions.forEach((dir, index) => {
-      const path = this.calculateBouncePath(startX, startY, dir);
-      allHitPositions.push(...path);
-      this.createYinyangOrb(startX, startY, path, index);
+    // 顺序投掷 5 个投射物，每个有轻微的垂直偏移（相对于射向）
+    const offsets = [-2, -1, 0, 1, 2];
+    const perpX = -baseDir.y;
+    const perpY = baseDir.x;
+
+    offsets.forEach((off, idx) => {
+      // 将偏移压缩为 -1, 0, 1 以保持“轻微”偏移
+      const perpSign = off === 0 ? 0 : (off > 0 ? 1 : -1);
+      let dx = baseDir.x + perpX * perpSign;
+      let dy = baseDir.y + perpY * perpSign;
+
+      // 限制为 -1/0/1
+      dx = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+      dy = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+
+      // 如果偏移后变成 (0,0)（极少数情况），回退为基础方向
+      if (dx === 0 && dy === 0) {
+        dx = baseDir.x;
+        dy = baseDir.y;
+      }
+
+      const path = this.calculateBouncePath(startX, startY, { x: dx, y: dy });
+      if (path && path.length > 0) {
+        allHitPositions.push(...path);
+        this.createYinyangOrb(startX, startY, path, idx);
+      }
     });
 
-    return { damage: this.damage, positions: allHitPositions, piercing: true };
+    return { damage: this.damage, positions: allHitPositions, piercing: true, projectileCount: offsets.length };
   }
 
   getSpreadDirections(baseDir) {
@@ -243,10 +265,26 @@ export class Fuumajin extends SpellCard {
       runes.strokeCircle(runeX, runeY, 5);
     }
 
-    this.scene.tweens.add({ targets: runes, angle: 360, duration: 2000, repeat: this.duration - 1, onComplete: () => runes.destroy() });
-    this.scene.tweens.add({ targets: barrier, alpha: 0.3, duration: 500, yoyo: true, repeat: this.duration * 2 - 1, onComplete: () => barrier.destroy() });
+    // 仅播放初始一次的视觉效果，后续每回合由场景的 processBarriers 触发动画
+    this.scene.tweens.add({ targets: runes, angle: 360, duration: 600 });
+    this.scene.tweens.add({ targets: barrier, alpha: 0.3, duration: 300, yoyo: true });
 
     const barrierData = { x: centerX, y: centerY, radius: this.radius, damage: this.damage, duration: this.duration, graphics: barrier, runes };
+    // 添加一个循环计时器，用于在非回合操作时也让结界保持视觉脉冲
+    try {
+      const pulseTimer = this.scene.time.addEvent({
+        delay: 600,
+        loop: true,
+        callback: () => {
+          try {
+            if (runes) this.scene.tweens.add({ targets: runes, angle: '+=180', duration: 500 });
+            if (barrier) this.scene.tweens.add({ targets: barrier, alpha: 0.45, duration: 250, yoyo: true });
+          } catch (e) {}
+        }
+      });
+      barrierData.pulseTimer = pulseTimer;
+    } catch (e) { /* 如果 time 或 tweens 不可用则忽略 */ }
+
     if (this.scene.addBarrier) this.scene.addBarrier(barrierData);
   }
 }

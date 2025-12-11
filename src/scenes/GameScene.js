@@ -298,6 +298,8 @@ export default class GameScene extends Phaser.Scene {
       // 随机选择敌人类型
       const EnemyClass = this.weightedRandom(enemyTypes, weights);
       const enemy = new EnemyClass(this, spawnPoint.x, spawnPoint.y);
+      // 记录敌人所属房间，供 AI 决策使用
+      try { enemy.room = spawnPoint.room; } catch (e) {}
       enemy.sprite.setDepth(10);
       
       this.enemies.push(enemy);
@@ -748,8 +750,19 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       
-      // 减少持续时间
+      // 减少持续时间，并触发“按回合”的视觉脉冲（与之前基于真实时间的 repeat 区别）
       barrier.duration--;
+
+      // 每回合触发一次视觉脉冲（旋转符文 + barrier 透明闪烁）
+      try {
+        if (barrier.runes) {
+          this.tweens.add({ targets: barrier.runes, angle: '+=360', duration: 500 });
+        }
+        if (barrier.graphics) {
+          this.tweens.add({ targets: barrier.graphics, alpha: 0.45, duration: 250, yoyo: true });
+        }
+      } catch (e) { /* ignore tween errors */ }
+
       if (barrier.duration <= 0) {
         toRemove.push(barrier);
       }
@@ -761,6 +774,11 @@ export default class GameScene extends Phaser.Scene {
       if (index !== -1) {
         this.barriers.splice(index, 1);
       }
+
+      // 销毁视觉对象
+      try { if (barrier.graphics && barrier.graphics.destroy) barrier.graphics.destroy(); } catch (e) {}
+      try { if (barrier.runes && barrier.runes.destroy) barrier.runes.destroy(); } catch (e) {}
+      try { if (barrier.pulseTimer && barrier.pulseTimer.remove) barrier.pulseTimer.remove(false); } catch (e) {}
     }
   }
 

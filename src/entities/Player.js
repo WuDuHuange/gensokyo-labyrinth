@@ -26,6 +26,26 @@ export default class Player extends Entity {
     
     // 符卡系统引用（由GameScene设置）
     this.spellCardSystem = null;
+
+    // 背包（道具 id 列表）
+    this.inventory = [];
+  }
+
+  /**
+   * 将道具加入背包（不会自动使用）
+   * @param {string} itemId
+   */
+  addItem(itemId) {
+    this.inventory.push(itemId);
+  }
+
+  /**
+   * 使用背包内道具（通过场景的 ItemSystem 处理效果）
+   * @param {number} index
+   */
+  useItem(index) {
+    if (!this.scene || !this.scene.itemSystem) return false;
+    return this.scene.itemSystem.useItem(this, index);
   }
 
   /**

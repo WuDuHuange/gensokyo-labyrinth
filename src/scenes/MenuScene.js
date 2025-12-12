@@ -1,6 +1,8 @@
 /**
  * 简化版菜单场景，避免使用高级语法以兼容现有构建流程。
  */
+import { ITEM_CONFIG } from '../config/gameConfig.js';
+
 export default class MenuScene extends Phaser.Scene {
   constructor() {
     // 这个文件作为游戏内暂停菜单，使用 InGameMenu 作为场景 key
@@ -45,30 +47,47 @@ export default class MenuScene extends Phaser.Scene {
 
   openInventory() {
     var game = this.scene.get('GameScene');
-    if (!game || !game.itemSystem) return;
+    if (!game) return;
 
-    // 简单列出当前地面道具位置供点击拾取
-    var items = game.itemSystem.items.slice();
+    // 若已有 inventoryContainer，先销毁
+    try { if (this.inventoryContainer) { this.inventoryContainer.destroy(true); this.inventoryContainer = null; } } catch (e) {}
+
+    var inv = game.player.inventory || [];
     var width = this.cameras.main.width, height = this.cameras.main.height;
-    // 清空并显示列表（简易）
-    this.children.removeAll();
-    this.add.rectangle(0, 0, width * 2, height * 2, 0x000000, 0.6).setOrigin(0);
-    this.add.text(width/2, height/2 - 140, '物品栏', { fontSize: '22px', color: '#fff' }).setOrigin(0.5);
 
-    for (var i = 0; i < items.length; i++) {
-      (function(it, idx, selfRef) {
-        var txt = selfRef.add.text(width/2 - 120, height/2 - 90 + idx * 30, it.id + ' @ (' + it.x + ',' + it.y + ')', { fontSize: '16px', color: '#fff' }).setInteractive();
-        txt.on('pointerdown', function() {
-          game.itemSystem.tryPickupAt(it.x, it.y, game.player);
-          // 返回主菜单
-          selfRef.scene.restart();
-        });
-      })(items[i], i, this);
+    var container = this.add.container(0, 0);
+    // 背景遮罩
+    var bg = this.add.rectangle(0, 0, width * 2, height * 2, 0x000000, 0.6).setOrigin(0);
+    container.add(bg);
+    var title = this.add.text(width/2, height/2 - 140, '物品栏', { fontSize: '22px', color: '#fff' }).setOrigin(0.5);
+    container.add(title);
+
+    if (!inv || inv.length === 0) {
+      var empty = this.add.text(width/2, height/2 - 80, '背包为空', { fontSize: '18px', color: '#cccccc' }).setOrigin(0.5);
+      container.add(empty);
+    } else {
+      for (var i = 0; i < inv.length; i++) {
+        (function(itemId, idx, selfRef, gameRef) {
+          var cfg = ITEM_CONFIG[itemId] || { name: itemId };
+          var y = height/2 - 100 + idx * 32;
+          var txt = selfRef.add.text(width/2 - 120, y, cfg.name, { fontSize: '16px', color: '#fff' }).setInteractive();
+          txt.on('pointerdown', function() {
+            // 使用道具
+            try { gameRef.player.useItem(idx); } catch (e) {}
+            // 刷新背包显示
+            selfRef.openInventory();
+          });
+          container.add(txt);
+        })(inv[i], i, this, game);
+      }
     }
 
     var back = this.add.text(width/2, height/2 + 120, '返回', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
     var self = this;
-    back.on('pointerdown', function() { self.scene.restart(); });
+    back.on('pointerdown', function() { try { container.destroy(true); self.inventoryContainer = null; } catch (e) {} });
+    container.add(back);
+
+    this.inventoryContainer = container;
   }
 
   openSpellMenu() {

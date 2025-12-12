@@ -615,9 +615,9 @@ export default class GameScene extends Phaser.Scene {
         // 更新主视图和小地图
         this.updateFogVisuals();
       }
-      // 检查是否在当前位置有可拾取道具
+      // 检查是否在当前位置有可拾取道具（加入背包）
       try {
-        if (this.itemSystem) await this.itemSystem.tryPickupAt(this.player.tileX, this.player.tileY, this.player);
+        if (this.itemSystem) this.itemSystem.tryPickupAt(this.player.tileX, this.player.tileY, this.player);
       } catch (e) { /* ignore pickup errors */ }
       this.endPlayerTurn();
     }

@@ -384,6 +384,8 @@ export default class GameScene extends Phaser.Scene {
     
     // 转向键（不消耗行动）
     this.turnKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
+    // 菜单键（暂停）
+    this.menuKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
   }
 
   update() {
@@ -392,6 +394,14 @@ export default class GameScene extends Phaser.Scene {
     
     // 处理自由视角模式
     if (this.handleFreeLookMode()) return;
+
+    // 菜单开关（Esc）
+    if (Phaser.Input.Keyboard.JustDown(this.menuKey)) {
+      // 暂停当前场景并打开菜单场景
+      this.scene.launch('MenuScene');
+      this.scene.pause();
+      return;
+    }
     
     // 如果按住 Q（转向模式），在主角身边显示指向箭头
     if (this.turnKey && this.turnKey.isDown && this.player) {

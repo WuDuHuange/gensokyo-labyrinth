@@ -1,92 +1,125 @@
 /**
- * 主菜单场景
+ * 菜单场景：暂停/继续、物品栏（即时使用）、符卡切换、存档/读档
  */
 export default class MenuScene extends Phaser.Scene {
   constructor() {
     super({ key: 'MenuScene' });
+    this.menuContainer = null;
   }
 
   create() {
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
 
-    // 标题
-    this.add.text(width / 2, height / 3, '幻想迷宫', {
-      fontSize: '48px',
-      fontFamily: 'Arial',
-      color: '#e94560',
-      stroke: '#000000',
-      strokeThickness: 4
-    }).setOrigin(0.5);
+    // 半透明遮罩
+    this.add.rectangle(0, 0, w * 2, h * 2, 0x000000, 0.6).setOrigin(0);
 
-    // 副标题
-    this.add.text(width / 2, height / 3 + 50, 'Gensokyo Labyrinth', {
-      fontSize: '20px',
-      fontFamily: 'Arial',
-      color: '#ffffff'
-    }).setOrigin(0.5);
+    // 主菜单容器
+    const box = this.add.rectangle(w / 2, h / 2, 360, 320, 0x111122, 0.95);
+    box.setStrokeStyle(2, 0xffffff, 0.12);
 
-    // 开始游戏按钮
-    const startButton = this.add.text(width / 2, height / 2 + 50, '【 开始探索 】', {
-      fontSize: '24px',
-      fontFamily: 'Arial',
-      color: '#ffffff'
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    const title = this.add.text(w / 2, h / 2 - 130, '游戏菜单', { fontSize: '24px', color: '#ffffff' }).setOrigin(0.5);
 
-    startButton.on('pointerover', () => {
-      startButton.setColor('#e94560');
-      startButton.setScale(1.1);
-    });
+    const resume = this.add.text(w / 2, h / 2 - 60, '继续 (Esc)', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
+    const inventory = this.add.text(w / 2, h / 2 - 20, '物品栏 (I)', { fontSize: '18px', color: '#fff' }).setOrigin(0.5).setInteractive();
+    const spellmenu = this.add.text(w / 2, h / 2 + 20, '符卡切换 (Tab)', { fontSize: '18px', color: '#fff' }).setOrigin(0.5).setInteractive();
+    const saveBtn = this.add.text(w / 2, h / 2 + 60, '存档', { fontSize: '18px', color: '#fff' }).setOrigin(0.5).setInteractive();
+    const loadBtn = this.add.text(w / 2, h / 2 + 100, '读档', { fontSize: '18px', color: '#fff' }).setOrigin(0.5).setInteractive();
 
-    startButton.on('pointerout', () => {
-      startButton.setColor('#ffffff');
-      startButton.setScale(1);
-    });
+    // 点击交互绑定
+    resume.on('pointerdown', () => this.closeMenu());
+    this.input.keyboard.on('keydown-ESC', () => this.closeMenu());
 
-    startButton.on('pointerdown', () => {
-      this.startGame();
-    });
+    inventory.on('pointerdown', () => this.openInventory());
+    this.input.keyboard.on('keydown-I', () => this.openInventory());
 
-    // 操作说明
-    this.add.text(width / 2, height - 130, '操作说明', {
-      fontSize: '18px',
-      fontFamily: 'Arial',
-      color: '#e94560'
-    }).setOrigin(0.5);
+    spellmenu.on('pointerdown', () => this.openSpellMenu());
+    this.input.keyboard.on('keydown-TAB', (e) => { e.preventDefault(); this.openSpellMenu(); });
 
-    this.add.text(width / 2, height - 105, '方向键/WASD: 八向移动 | 空格: 等待 | Z/X/C: 符卡', {
-      fontSize: '11px',
-      fontFamily: 'Arial',
-      color: '#aaaaaa'
-    }).setOrigin(0.5);
-    
-    this.add.text(width / 2, height - 85, 'Q+方向: 原地转向（不消耗行动） | TAB: 自由视角 | R: 返回', {
-      fontSize: '11px',
-      fontFamily: 'Arial',
-      color: '#aaaaaa'
-    }).setOrigin(0.5);
+    saveBtn.on('pointerdown', () => this.saveGame());
+    loadBtn.on('pointerdown', () => this.loadGame());
 
-    // 版本信息
-    this.add.text(width - 10, height - 10, 'Demo v0.1.0', {
-      fontSize: '12px',
-      fontFamily: 'Arial',
-      color: '#666666'
-    }).setOrigin(1, 1);
-
-    // 键盘快捷键
-    this.input.keyboard.on('keydown-ENTER', () => {
-      this.startGame();
-    });
-
-    this.input.keyboard.on('keydown-SPACE', () => {
-      this.startGame();
-    });
+    this.menuContainer = this.add.container(0, 0, [box, title, resume, inventory, spellmenu, saveBtn, loadBtn]);
+    this.menuContainer.setDepth(1000);
   }
 
-  startGame() {
-    this.cameras.main.fadeOut(500, 0, 0, 0);
-    this.cameras.main.once('camerafadeoutcomplete', () => {
-      this.scene.start('GameScene');
+  closeMenu() {
+    // 恢复主场景
+    this.scene.stop();
+    this.scene.resume('GameScene');
+  }
+
+  openInventory() {
+    // 简易物品栏：列出场景 ItemSystem 的 items 并允许点击使用（如果是消耗品）
+    const game = this.scene.get('GameScene');
+    const items = (game && game.itemSystem && game.itemSystem.items) ? game.itemSystem.items.slice() : [];
+
+    // 清空原 UI 并显示简易列表
+    this.menuContainer.removeAll(true);
+    const w = this.cameras.main.width, h = this.cameras.main.height;
+    const box = this.add.rectangle(w/2, h/2, 420, 360, 0x0f0f1a, 0.98);
+    box.setStrokeStyle(2, 0xffffff, 0.12);
+    const title = this.add.text(w/2, h/2 - 160, '物品栏', { fontSize: '22px', color: '#fff' }).setOrigin(0.5);
+
+    const listYStart = h/2 - 120;
+    items.forEach((it, idx) => {
+      const text = this.add.text(w/2 - 140, listYStart + idx * 36, `${it.id} @ (${it.x},${it.y})`, { fontSize: '18px', color: '#fff' }).setInteractive();
+      text.on('pointerdown', async () => {
+        // 立即尝试拾取并应用（如果仍在地面）
+        try { await game.itemSystem.tryPickupAt(it.x, it.y, game.player); } catch (e) {}
+        // 重新打开菜单主界面
+        this.scene.restart();
+      });
+      this.menuContainer.add(text);
     });
+
+    const back = this.add.text(w/2, h/2 + 160, '返回', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
+    back.on('pointerdown', () => this.scene.restart());
+    this.menuContainer.add([box, title, back]);
+    this.menuContainer.setDepth(1000);
+  }
+
+  openSpellMenu() {
+    // 暂时跳回主场景并触发场景内的符卡切换UI（若有）
+    const game = this.scene.get('GameScene');
+    if (game && game.scene) {
+      // 若 UIScene 有符卡UI可以切换，这里暂时只提示
+      this.scene.stop();
+      this.scene.resume('GameScene');
+      game.events.emit('openSpellMenu');
+    }
+  }
+
+  saveGame() {
+    const game = this.scene.get('GameScene');
+    if (!game) return;
+    try {
+      const state = {
+        player: game.player.getStats(),
+        floor: game.floor,
+        enemies: game.enemies.map(e => ({ id: e.name, x: e.tileX, y: e.tileY, hp: e.hp })),
+        map: { seed: game.mapData.seed || null }
+      };
+      localStorage.setItem('genso_save', JSON.stringify(state));
+      this.scene.get('UIScene')?.events?.emit('showMessage', '已存档');
+    } catch (e) { console.error('save failed', e); }
+  }
+
+  loadGame() {
+    const data = localStorage.getItem('genso_save');
+    if (!data) return;
+    try {
+      const state = JSON.parse(data);
+      const game = this.scene.get('GameScene');
+      if (!game) return;
+      // 只做简单恢复：玩家 HP + floor
+      game.player.hp = state.player.hp || game.player.hp;
+      game.player.tileX = state.player.position.x || game.player.tileX;
+      game.player.tileY = state.player.position.y || game.player.tileY;
+      game.floor = state.floor || game.floor;
+      // 更新玩家精灵位置
+      game.player.sprite.setPosition(game.player.tileX * 32 + 16, game.player.tileY * 32 + 16);
+      this.scene.get('UIScene')?.events?.emit('showMessage', '已读档（仅恢复基础状态）');
+    } catch (e) { console.error('load failed', e); }
   }
 }

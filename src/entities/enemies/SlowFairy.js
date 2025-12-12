@@ -199,6 +199,20 @@ export default class SlowFairy extends Enemy {
         this.scene.events.emit('showDamage', { x: enemy.sprite.x, y: enemy.sprite.y - 20, damage: dmg, isHeal: false });
       }
 
+      // 检查门（激光可对门造成伤害并在命中后停止）
+      try {
+        if (this.scene && this.scene.getDoorAt) {
+          const door = this.scene.getDoorAt(x, y);
+          if (door) {
+            const dd = door.takeDamage(this.laserDamage);
+            impacts.push({ x, y });
+            this.scene.events.emit('showDamage', { x: door.sprite ? door.sprite.x : x * TILE_SIZE, y: door.sprite ? door.sprite.y - 8 : y * TILE_SIZE, damage: dd, isHeal: false });
+            // 激光在击中门后停止
+            break;
+          }
+        }
+      } catch (e) {}
+
       // 检查玩家
       if (player && player.tileX === x && player.tileY === y && player.isAlive) {
         const dmg = player.takeDamage(this.laserDamage);

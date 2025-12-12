@@ -11,7 +11,9 @@ import SlowFairy from '../entities/enemies/SlowFairy.js';
 import NormalFairy from '../entities/enemies/NormalFairy.js';
 import FastFairy from '../entities/enemies/FastFairy.js';
 import DanmakuFairy from '../entities/enemies/DanmakuFairy.js';
+import DemoBoss from '../entities/enemies/DemoBoss.js';
 import ItemSystem from '../systems/ItemSystem.js';
+import Door from '../entities/Door.js';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -42,6 +44,14 @@ export default class GameScene extends Phaser.Scene {
     this.heldMove = null; // {x, y} or null
     // 转向提示箭头
     this.aimArrow = null; // Phaser.GameObjects.Triangle
+    // 场景内的门集合
+    this.doors = [];
+    // Boss 房相关
+    this.bossRoom = null;
+    this.bossEntity = null;
+    this.bossRoomLocked = false; // 进入 boss 房后启用，阻止离开
+    this.exitActive = true; // 默认 true（若存在 boss 房则会在生成时设为 false）
+    this.exitSprite = null;
   }
 
   createAimArrow() {
@@ -118,6 +128,11 @@ export default class GameScene extends Phaser.Scene {
     
     // 生成地图
     this.generateMap();
+    // 若存在 boss 房，则在击败 boss 之前关闭出口
+    try {
+      const hasBoss = this.mapData && this.mapData.rooms && this.mapData.rooms.some(r => r.type === 'boss');
+      if (hasBoss) this.exitActive = false; else this.exitActive = true;
+    } catch (e) { this.exitActive = true; }
     
     // 创建玩家
     this.createPlayer();
@@ -135,13 +150,16 @@ export default class GameScene extends Phaser.Scene {
     this.fog = new FogOfWar(this.mapData.width, this.mapData.height);
     // 可视半径（以格为单位），可根据玩家装备/技能动态调整
     this.fog.setVisionRadius(6);
-    // 计算初始可见性
+    // 计算初始可见性（注意门会阻挡视线）
+    this.fog.setBlockers(this.getVisionBlockers());
     this.fog.compute(this.mapData.tiles, this.player.tileX, this.player.tileY);
     // 将迷雾可视效果应用到主视图
     this.updateFogVisuals();
     
     // 生成敌人
     this.spawnEnemies();
+    // 在各房间生成资源 / 宝箱
+    try { this.spawnResources(); } catch (e) { /* ignore */ }
     
     // 设置摄像机
     this.setupCamera();
@@ -160,6 +178,134 @@ export default class GameScene extends Phaser.Scene {
     
     // 更新UI
     this.updateUI();
+  }
+
+  /**
+   * 在地图房间中放置资源或宝箱
+   */
+  spawnResources() {
+    if (!this.mapData || !this.mapData.rooms || !this.itemSystem) return;
+    for (const room of this.mapData.rooms) {
+      if (!room || room.type === 'spawn' || room.type === 'exit') continue;
+
+      // Boss 房处理
+      if (room.type === 'boss') {
+        try {
+          // 标记并生成 Boss
+          this.bossRoom = room;
+          const bx = room.centerX;
+          const by = room.centerY;
+          const boss = new DemoBoss(this, bx, by);
+          boss.room = room;
+          boss.sprite.setDepth(12);
+          this.enemies.push(boss);
+          if (this.actionQueue) this.actionQueue.addEntity(boss);
+          this.bossEntity = boss;
+
+          // 在该房间所有入口放置门并锁定（在击败 boss 前无法打开）
+          const doorPositions = this.findRoomEntrances(room);
+          if (doorPositions && doorPositions.length) {
+            for (const dp of doorPositions) {
+              try {
+                const d = new Door(this, dp.x, dp.y, 30);
+                // Boss 门初始为打开状态，允许玩家进入；在玩家进入时会被 close() 并 locked
+                try { d.open(); } catch (e) {}
+                d.locked = false;
+                this.doors.push(d);
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+        continue;
+      }
+
+      // 资源房（特殊房）放置较多资源并在入口放置一扇门
+      if (room.type === 'resource') {
+        // 在房间内部大量放置资源（随机 3~6 个）
+        const rcount = this.mapManager.randomRange(3, 6);
+        for (let i = 0; i < rcount; i++) {
+          const rx = this.mapManager.randomRange(room.x + 1, room.x + room.width - 2);
+          const ry = this.mapManager.randomRange(room.y + 1, room.y + room.height - 2);
+          if (!this.mapManager.isWalkable(rx, ry)) continue;
+          if (this.player && this.player.tileX === rx && this.player.tileY === ry) continue;
+          if (this.enemies.some(e => e.tileX === rx && e.tileY === ry)) continue;
+          const id = (Math.random() < 0.7) ? 'herb' : 'gold_coin';
+          try { this.itemSystem.spawnItem(rx, ry, id); } catch (e) {}
+        }
+
+        // 在该房间的所有入口处放置门（若找到合适位置）
+        const doorPositions = this.findRoomEntrances(room);
+        if (doorPositions && doorPositions.length) {
+          for (const dp of doorPositions) {
+            try { const d = new Door(this, dp.x, dp.y, 18); this.doors.push(d); } catch (e) {}
+          }
+        }
+
+        continue;
+      }
+
+      // 普通房间按照旧逻辑少量生成资源/箱子
+      const roll = Math.random();
+      if (roll < 0.35) continue; // 35% 概率空房
+
+      const count = Math.random() < 0.6 ? 1 : 2;
+      for (let i = 0; i < count; i++) {
+        const rx = this.mapManager.randomRange(room.x + 1, room.x + room.width - 2);
+        const ry = this.mapManager.randomRange(room.y + 1, room.y + room.height - 2);
+
+        // 保证可通行且不在玩家/敌人位置
+        if (!this.mapManager.isWalkable(rx, ry)) continue;
+        if (this.player && this.player.tileX === rx && this.player.tileY === ry) continue;
+        if (this.enemies.some(e => e.tileX === rx && e.tileY === ry)) continue;
+
+        // 20% 宝箱，80% 资源
+        if (Math.random() < 0.2) {
+          try { this.itemSystem.spawnContainer(rx, ry, 'chest_wood'); } catch (e) {}
+        } else {
+          // 资源类型随机：草药或金币
+          const r = Math.random();
+          const id = (r < 0.6) ? 'herb' : 'gold_coin';
+          try { this.itemSystem.spawnItem(rx, ry, id); } catch (e) {}
+        }
+      }
+    }
+  }
+
+  // 查找房间所有入口（返回房间内侧可放门的格子列表）
+  findRoomEntrances(room) {
+    const entrances = [];
+    try {
+      if (!room) return entrances;
+      // 遍历房间边界上的格子，若该格可通行且其外侧邻格可通行则视为入口
+      const minX = room.x;
+      const maxX = room.x + room.width - 1;
+      const minY = room.y;
+      const maxY = room.y + room.height - 1;
+
+      const checkAndAdd = (x, y, ox, oy) => {
+        try {
+          // 当前格为房间内侧格，外侧格为房间外侧通路
+          if (!this.mapManager.isWalkable(x, y)) return;
+          const outsideX = x + ox;
+          const outsideY = y + oy;
+          if (!this.mapManager.isWalkable(outsideX, outsideY)) return;
+          // 确保 outside tile 不在同一房间内部
+          if (outsideX >= room.x && outsideX < room.x + room.width && outsideY >= room.y && outsideY < room.y + room.height) return;
+          // 避免重复添加（我们将门放在外侧格）
+          if (!entrances.some(p => p.x === outsideX && p.y === outsideY)) entrances.push({ x: outsideX, y: outsideY });
+        } catch (e) {}
+      };
+
+      // top edge (check outward -1 in y)
+      for (let x = minX; x <= maxX; x++) checkAndAdd(x, minY, 0, -1);
+      // bottom edge (outward +1 in y)
+      for (let x = minX; x <= maxX; x++) checkAndAdd(x, maxY, 0, 1);
+      // left edge (outward -1 in x)
+      for (let y = minY; y <= maxY; y++) checkAndAdd(minX, y, -1, 0);
+      // right edge (outward +1 in x)
+      for (let y = minY; y <= maxY; y++) checkAndAdd(maxX, y, 1, 0);
+    } catch (e) {}
+    return entrances;
   }
 
   /**
@@ -206,7 +352,9 @@ export default class GameScene extends Phaser.Scene {
             const exit = this.add.sprite(posX + TILE_SIZE / 2, posY + TILE_SIZE / 2, 'exit');
             exit.setDepth(1);
             this.floorLayer.add(exit);
-            // 出口闪烁动画
+            this.exitSprite = exit;
+            // 出口默认闪烁，颜色由 exitActive 控制
+            this.updateExitVisual();
             this.tweens.add({
               targets: exit,
               alpha: 0.6,
@@ -273,6 +421,32 @@ export default class GameScene extends Phaser.Scene {
         } catch (ex) { /* ignore */ }
       }
     }
+
+    // 地面道具/宝箱：仅在可见时显示
+    try {
+      if (this.itemSystem && this.itemSystem.items) {
+        for (const it of this.itemSystem.items) {
+          try {
+            const tx = it.x, ty = it.y;
+            const isVis = visible && visible[ty] ? !!visible[ty][tx] : false;
+            if (it.sprite) it.sprite.setVisible(!!isVis);
+          } catch (ex) { /* ignore per-item errors */ }
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    // 门：仅在可见时显示
+    try {
+      if (this.doors && this.doors.length) {
+        for (const d of this.doors) {
+          try {
+            const tx = d.tileX, ty = d.tileY;
+            const isVis = visible && visible[ty] ? !!visible[ty][tx] : false;
+            if (d.sprite) d.sprite.setVisible(!!isVis && !d.isOpen);
+          } catch (ex) {}
+        }
+      }
+    } catch (e) {}
 
     // 玩家自己始终可见
     if (this.player && this.player.sprite) {
@@ -611,10 +785,13 @@ export default class GameScene extends Phaser.Scene {
     if (moved) {
       // 玩家移动后更新迷雾再结束回合/更新UI
       if (this.fog) {
+        this.fog.setBlockers(this.getVisionBlockers());
         this.fog.compute(this.mapData.tiles, this.player.tileX, this.player.tileY);
         // 更新主视图和小地图
         this.updateFogVisuals();
       }
+      // 检查是否进入 Boss 房并触发结界锁定
+      try { this.checkEnterBossRoom(); } catch (e) {}
       // 检查是否在当前位置有可拾取道具（加入背包）
       try {
         if (this.itemSystem) this.itemSystem.tryPickupAt(this.player.tileX, this.player.tileY, this.player);
@@ -623,6 +800,117 @@ export default class GameScene extends Phaser.Scene {
     }
     
     this.isProcessingTurn = false;
+  }
+
+  // 返回用于迷雾计算的阻挡点（闭合门的位置）
+  getVisionBlockers() {
+    try {
+      if (!this.doors || this.doors.length === 0) return [];
+      const b = [];
+      for (const d of this.doors) {
+        try { if (d && !d.isOpen) b.push({ x: d.tileX, y: d.tileY }); } catch (e) {}
+      }
+      return b;
+    } catch (e) { return []; }
+  }
+
+  // 玩家进入 boss 房时触发结界：锁门并阻止离开
+  checkEnterBossRoom() {
+    try {
+      if (!this.bossRoom || !this.bossEntity || !this.bossEntity.isAlive) return;
+      const r = this.bossRoom;
+      const px = this.player.tileX, py = this.player.tileY;
+      const inside = (px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height);
+      if (inside && !this.bossRoomLocked) {
+        this.bossRoomLocked = true;
+        // 将房间所有门标记为 locked
+        for (const d of this.doors) {
+          try {
+            if (d && d.tileX >= r.x - 1 && d.tileX <= r.x + r.width && d.tileY >= r.y - 1 && d.tileY <= r.y + r.height) {
+              d.locked = true;
+              try { d.close(); } catch (e) {}
+            }
+          } catch (e) {}
+        }
+        // 可视结界：在房间边缘绘制半透明圆或矩形
+        try {
+          const g = this.add.graphics();
+          g.lineStyle(3, 0x99bbff, 0.9);
+          g.fillStyle(0x3366ff, 0.12);
+          const cx = r.centerX * TILE_SIZE + TILE_SIZE / 2;
+          const cy = r.centerY * TILE_SIZE + TILE_SIZE / 2;
+          const radius = Math.max(r.width, r.height) * TILE_SIZE / 1.6;
+          g.fillCircle(cx, cy, radius);
+          g.setDepth(30);
+          this._bossBarrierGraphic = g;
+          this.events.emit('showMessage', '周围出现了结界，无法离开房间，直到首领被击败。');
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  // boss 被击败时的回调
+  onBossDefeated(boss) {
+    try {
+      this.bossEntity = null;
+      this.bossRoomLocked = false;
+      // 解锁房间门
+      for (const d of this.doors) try { d.locked = false; try { d.open(); } catch (e) {} } catch (e) {}
+      // 移除结界视觉
+      try { if (this._bossBarrierGraphic) { this._bossBarrierGraphic.destroy(); this._bossBarrierGraphic = null; } } catch (e) {}
+      // 激活出口
+      this.exitActive = true;
+      this.updateExitVisual();
+      this.events.emit('showMessage', '首领被击败了！通往出口的门显现为绿色。');
+    } catch (e) {}
+  }
+
+  updateExitVisual() {
+    try {
+      if (!this.exitSprite) return;
+      if (this.exitActive) {
+        this.exitSprite.clearTint();
+        this.exitSprite.setTint(0x66ff66);
+      } else {
+        this.exitSprite.clearTint();
+        this.exitSprite.setTint(0x666666);
+      }
+    } catch (e) {}
+  }
+
+  // 在房间边界查找一个合适的入口格子（返回房间内侧坐标）
+  findRoomEntrance(room) {
+    try {
+      // top
+      for (let x = room.x; x < room.x + room.width; x++) {
+        const y = room.y;
+        if (this.mapManager.isWalkable(x, y) && this.mapManager.isWalkable(x, y - 1)) return { x, y };
+      }
+      // bottom
+      for (let x = room.x; x < room.x + room.width; x++) {
+        const y = room.y + room.height - 1;
+        if (this.mapManager.isWalkable(x, y) && this.mapManager.isWalkable(x, y + 1)) return { x, y };
+      }
+      // left
+      for (let y = room.y; y < room.y + room.height; y++) {
+        const x = room.x;
+        if (this.mapManager.isWalkable(x, y) && this.mapManager.isWalkable(x - 1, y)) return { x, y };
+      }
+      // right
+      for (let y = room.y; y < room.y + room.height; y++) {
+        const x = room.x + room.width - 1;
+        if (this.mapManager.isWalkable(x, y) && this.mapManager.isWalkable(x + 1, y)) return { x, y };
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  getDoorAt(x, y) {
+    if (!this.doors) return null;
+    for (const d of this.doors) {
+      try { if (d && d.tileX === x && d.tileY === y && !d.isOpen) return d; } catch (e) {}
+    }
+    return null;
   }
 
   /**
@@ -692,7 +980,24 @@ export default class GameScene extends Phaser.Scene {
    * 检查是否可以移动到指定位置
    */
   canMoveTo(x, y) {
-    return this.mapManager.isWalkable(x, y);
+    // 不可出界或墙体
+    if (!this.mapManager.isWalkable(x, y)) return false;
+    // 如果有未打开的门在该格，阻挡移动
+    try {
+      const door = this.getDoorAt(x, y);
+      if (door && !door.isOpen) return false;
+    } catch (e) {}
+    // 若处于 boss 房结界中，禁止从房间内移动到外侧格
+    try {
+      if (this.bossRoomLocked && this.bossRoom && this.player) {
+        const r = this.bossRoom;
+        const px = this.player.tileX, py = this.player.tileY;
+        const insideNow = (px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height);
+        const targetInside = (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+        if (insideNow && !targetInside) return false;
+      }
+    } catch (e) {}
+    return true;
   }
 
   /**
@@ -729,7 +1034,8 @@ export default class GameScene extends Phaser.Scene {
   checkExit() {
     const { exitPoint } = this.mapData;
     if (this.player.tileX === exitPoint.x && this.player.tileY === exitPoint.y) {
-      this.victory();
+      if (this.exitActive) this.victory();
+      else this.events.emit('showMessage', '出口被封印，无法离开！');
     }
   }
 
@@ -825,7 +1131,9 @@ export default class GameScene extends Phaser.Scene {
       player: this.player,
       enemies: this.enemies,
       exitPoint: this.mapData.exitPoint,
-      fog: this.fog ? { explored: this.fog.getExplored(), visible: this.fog.getVisible() } : null
+      fog: this.fog ? { explored: this.fog.getExplored(), visible: this.fog.getVisible() } : null,
+      items: this.itemSystem ? (this.itemSystem.items.map(it => ({ id: it.id, x: it.x, y: it.y }))) : [],
+      doors: this.doors ? this.doors.map(d => ({ x: d.tileX, y: d.tileY, isOpen: !!d.isOpen })) : []
     });
   }
 

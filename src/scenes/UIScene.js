@@ -28,6 +28,10 @@ export default class UIScene extends Phaser.Scene {
     gameScene.events.on('showDamage', (data) => {
       this.showDamageNumber(data);
     });
+    // 打开符卡切换菜单的事件（由 MenuScene 或其他触发）
+    gameScene.events.on('openSpellMenu', () => {
+      this.openSpellMenuOverlay();
+    });
   }
 
   createHUD() {
@@ -91,6 +95,13 @@ export default class UIScene extends Phaser.Scene {
       color: '#aaaaaa'
     });
 
+    // 地面物品提示（当玩家周围或当前位置有物品时显示）
+    this.groundItemText = this.add.text(padding + 10, padding + 105, '', {
+      fontSize: '12px',
+      fontFamily: 'Arial',
+      color: '#fff2b0'
+    });
+
     // 符卡显示
     this.createSpellCardUI();
 
@@ -110,41 +121,84 @@ export default class UIScene extends Phaser.Scene {
     spellBg.fillStyle(0x000000, 0.7);
     spellBg.fillRoundedRect(width - 210, padding, 200, 95, 8);
 
-    // 符卡1 - 明珠暗投（反弹）
-    this.add.text(width - 200, padding + 8, '[Z] 明珠暗投', {
-      fontSize: '11px',
-      fontFamily: 'Arial',
-      color: '#ffff6b'
-    });
-    this.spell1CostText = this.add.text(width - 200, padding + 22, 'MP:30 反弹', {
-      fontSize: '9px',
-      fontFamily: 'Arial',
-      color: '#aaaaaa'
-    });
+    // 快捷槽显示（Z/X/C）及对应符卡名/冷却显示（会在 updateSpellUI 刷新）
+    this.spellSlotTexts = [];
+    this.spellSlotCd = [];
+    const slotX = width - 200;
+    const baseY = padding + 8;
+    const slotLabels = ['Z', 'X', 'C'];
+    for (let i = 0; i < 3; i++) {
+      this.spellSlotTexts[i] = this.add.text(slotX, baseY + i * 28, `[${slotLabels[i]}] -`, { fontSize: '11px', fontFamily: 'Arial', color: '#ffffff' });
+      this.spellSlotCd[i] = this.add.text(slotX, baseY + 12 + i * 28, '', { fontSize: '9px', fontFamily: 'Arial', color: '#aaaaaa' });
+    }
 
-    // 符卡2 - 封魔阵（结界）
-    this.add.text(width - 200, padding + 38, '[X] 封魔阵', {
-      fontSize: '11px',
-      fontFamily: 'Arial',
-      color: '#ff6b6b'
-    });
-    this.spell2CostText = this.add.text(width - 200, padding + 52, 'MP:25 结界', {
-      fontSize: '9px',
-      fontFamily: 'Arial',
-      color: '#aaaaaa'
-    });
+    // 初始化显示
+    this.updateSpellUI();
+  }
 
-    // 符卡3 - 梦想妙珠（追踪）
-    this.add.text(width - 200, padding + 68, '[C] 梦想妙珠', {
-      fontSize: '11px',
-      fontFamily: 'Arial',
-      color: '#6bffff'
-    });
-    this.spell3CostText = this.add.text(width - 200, padding + 82, 'MP:35 追踪', {
-      fontSize: '9px',
-      fontFamily: 'Arial',
-      color: '#aaaaaa'
-    });
+  updateSpellUI() {
+    const game = this.scene.get('GameScene');
+    if (!game || !game.spellCardSystem || !game.player) return;
+    const status = game.spellCardSystem.getStatus();
+    for (let i = 0; i < 3; i++) {
+      const mappedIndex = (game.player.quickSlots && game.player.quickSlots[i] !== undefined) ? game.player.quickSlots[i] : i;
+      const s = status[mappedIndex] || { name: '未知', mpCost: 0, cooldown: 0, maxCooldown: 0 };
+      this.spellSlotTexts[i].setText(`[${['Z','X','C'][i]}] ${s.name}`);
+      this.spellSlotCd[i].setText(s.cooldown > 0 ? `CD:${s.cooldown}` : `MP:${s.mpCost}`);
+    }
+  }
+
+  openSpellMenuOverlay() {
+    const game = this.scene.get('GameScene');
+    if (!game || !game.spellCardSystem) return;
+
+    // 若已存在覆盖层，移除
+    try { if (this.spellMenuContainer) { this.spellMenuContainer.destroy(true); this.spellMenuContainer = null; } } catch (e) {}
+
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+    const container = this.add.container(0,0);
+    const overlay = this.add.rectangle(0,0,width*2,height*2,0x000000,0.6).setOrigin(0);
+    container.add(overlay);
+
+    const boxW = 480, boxH = 360;
+    const box = this.add.rectangle(width/2, height/2, boxW, boxH, 0x0f0f16, 1.0);
+    box.setStrokeStyle(2, 0xffffff, 0.12);
+    container.add(box);
+
+    const title = this.add.text(width/2, height/2 - boxH/2 + 24, '符卡配置', { fontSize: '20px', color: '#ffffff' }).setOrigin(0.5);
+    container.add(title);
+
+    const spells = game.spellCardSystem.getStatus();
+    // 显示所有可用符卡，并为每个符卡添加 3 个按钮分配到槽位
+    for (let si = 0; si < spells.length; si++) {
+      const s = spells[si];
+      const y = height/2 - boxH/2 + 64 + si * 36;
+      const nameTxt = this.add.text(width/2 - 160, y, s.name, { fontSize: '16px', color: '#ffffff' }).setOrigin(0,0.5);
+      container.add(nameTxt);
+
+      // 创建三个小按钮（Z/X/C）用于分配
+      const labels = ['Z','X','C'];
+      for (let slot = 0; slot < 3; slot++) {
+        const btn = this.add.text(width/2 + (slot*60) - 20, y, labels[slot], { fontSize: '14px', color: '#ffffff', backgroundColor: '#222222' }).setOrigin(0.5).setInteractive();
+        btn.on('pointerover', () => { try { btn.setStyle({ backgroundColor: '#335533', color: '#88ff88' }); } catch(e) {} });
+        btn.on('pointerout', () => { try { btn.setStyle({ backgroundColor: '#222222', color: '#ffffff' }); } catch(e) {} });
+        (function(sIndex, slotIndex, selfRef) {
+          btn.on('pointerdown', function() {
+            try { game.player.setQuickSlot(slotIndex, sIndex); } catch (e) {}
+            // 更新 HUD 显示
+            selfRef.updateSpellUI();
+          });
+        })(si, slot, this);
+        container.add(btn);
+      }
+    }
+
+    const close = this.add.text(width/2, height/2 + boxH/2 - 30, '返回', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
+    close.on('pointerdown', () => { try { container.destroy(true); this.spellMenuContainer = null; } catch(e) {} });
+    container.add(close);
+
+    this.spellMenuContainer = container;
   }
 
   createMinimap() {
@@ -305,6 +359,49 @@ export default class UIScene extends Phaser.Scene {
       }
     }
     
+    // 绘制地面物品（仅在当前可见时显示）
+    if (data.items) {
+      this.minimapGraphics.fillStyle(0xffdd44, 1);
+      for (const it of data.items) {
+        try {
+          const ix = it.x;
+          const iy = it.y;
+          const isVis = fog && fog.visible && fog.visible[iy] ? !!fog.visible[iy][ix] : true;
+          if (!isVis) continue;
+          this.minimapGraphics.fillRect(
+            offsetX + ix * scale - 1,
+            offsetY + iy * scale - 1,
+            2,
+            2
+          );
+        } catch (e) {}
+      }
+    }
+    
+    // 绘制门（仅绘制未开的门，使用特殊颜色）
+    if (data.doors) {
+      this.minimapGraphics.fillStyle(0xff66cc, 1); // 粉色表示未开门
+      for (const door of data.doors) {
+        try {
+          if (door.isOpen) continue;
+          const dx = door.x, dy = door.y;
+          const isVis = fog && fog.visible && fog.visible[dy] ? !!fog.visible[dy][dx] : true;
+          // 仅在该门所在格可见或已探索时显示小标记
+          const explored = fog && fog.explored && fog.explored[dy] ? !!fog.explored[dy][dx] : true;
+          if (!explored) continue;
+          // 如果不可见但已探索，画暗色；如果可见画亮色
+          if (!isVis) this.minimapGraphics.fillStyle(0x8b3b5a, 1);
+          else this.minimapGraphics.fillStyle(0xff66cc, 1);
+          this.minimapGraphics.fillRect(
+            offsetX + dx * scale - 1,
+            offsetY + dy * scale - 1,
+            2,
+            2
+          );
+        } catch (e) {}
+      }
+    }
+    
     // 绘制玩家（最后绘制，确保在最上层）
     this.minimapGraphics.fillStyle(0xffff00, 1);
     this.minimapGraphics.fillRect(
@@ -313,6 +410,28 @@ export default class UIScene extends Phaser.Scene {
       4,
       4
     );
+
+    // 更新地面物品 HUD 提示（检测玩家所在格及四周格）
+    try {
+      let nearby = [];
+      if (data.items) {
+        for (const it of data.items) {
+          const dx = Math.abs(it.x - player.tileX);
+          const dy = Math.abs(it.y - player.tileY);
+          if (dx + dy <= 2) {
+            // 附近 2 格内列为提示
+            nearby.push(it);
+          }
+        }
+      }
+
+      if (nearby.length === 0) {
+        this.groundItemText.setText('');
+      } else {
+        // 简短计数提示
+        this.groundItemText.setText(`地上物品: ${nearby.length} 件（按移动拾取）`);
+      }
+    } catch (e) { /* ignore */ }
   }
 
   createMessageLog() {

@@ -188,22 +188,39 @@ export class MeigyokuAnki extends SpellCard {
   }
 
   applyHitDamage(tileX, tileY) {
-    if (!this.scene || !this.scene.getEnemyAt) return;
-    const enemy = this.scene.getEnemyAt(tileX, tileY);
-    if (!enemy) return;
+    if (!this.scene) return;
 
-    const damage = enemy.takeDamage(this.damage);
-    this.scene.events.emit('showDamage', {
-      x: enemy.sprite.x,
-      y: enemy.sprite.y - 20,
-      damage: damage,
-      isHeal: false
-    });
+    // 先尝试伤害敌人（若存在）
+    try {
+      if (this.scene.getEnemyAt) {
+        const enemy = this.scene.getEnemyAt(tileX, tileY);
+        if (enemy) {
+          const damage = enemy.takeDamage(this.damage);
+          this.scene.events.emit('showDamage', {
+            x: enemy.sprite.x,
+            y: enemy.sprite.y - 20,
+            damage: damage,
+            isHeal: false
+          });
 
-    if (!enemy.isAlive) {
-      this.scene.events.emit('showMessage', `${enemy.name} 被符卡击败！`);
-      if (this.scene.removeEnemy) this.scene.removeEnemy(enemy);
-    }
+          if (!enemy.isAlive) {
+            this.scene.events.emit('showMessage', `${enemy.name} 被符卡击败！`);
+            if (this.scene.removeEnemy) this.scene.removeEnemy(enemy);
+          }
+        }
+      }
+    } catch (e) {}
+
+    // 无论是否有敌人，都检查此格是否有门并对其造成伤害
+    try {
+      if (this.scene.getDoorAt) {
+        const door = this.scene.getDoorAt(tileX, tileY);
+        if (door) {
+          const dmd = door.takeDamage(this.damage);
+          this.scene.events.emit('showDamage', { x: door.sprite ? door.sprite.x : tileX * TILE_SIZE, y: door.sprite ? door.sprite.y - 8 : tileY * TILE_SIZE, damage: dmd, isHeal: false });
+        }
+      }
+    } catch (e) {}
   }
 
   createHitEffect(tileX, tileY) {

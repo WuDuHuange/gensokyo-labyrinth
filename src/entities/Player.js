@@ -27,6 +27,9 @@ export default class Player extends Entity {
     // 符卡系统引用（由GameScene设置）
     this.spellCardSystem = null;
 
+    // 快捷符卡槽（存放 spellCardSystem.spellCards 的索引）
+    this.quickSlots = [0, 1, 2];
+
     // 背包（道具 id 列表）
     this.inventory = [];
   }
@@ -84,6 +87,14 @@ export default class Player extends Entity {
     
     // 检查是否可以移动
     if (!this.scene.canMoveTo(newX, newY)) {
+      // 若被门阻挡，触碰开启门（消耗行动）
+      try {
+        const door = this.scene.getDoorAt(newX, newY);
+        if (door && !door.isOpen) {
+          try { door.openByTouch(); } catch (e) {}
+          return true; // 消耗一次行动但不移动
+        }
+      } catch (e) {}
       return false;
     }
     
@@ -151,8 +162,9 @@ export default class Player extends Entity {
    */
   useSpellCard(index) {
     if (!this.spellCardSystem) return false;
-    
-    const spellCard = this.spellCardSystem.getSpellCard(index);
+    // 使用快捷槽映射到实际的 spellCards 索引
+    const mappedIndex = (this.quickSlots && this.quickSlots[index] !== undefined) ? this.quickSlots[index] : index;
+    const spellCard = this.spellCardSystem.getSpellCard(mappedIndex);
     if (!spellCard) return false;
     
     // 检查是否可以使用
@@ -229,6 +241,16 @@ export default class Player extends Entity {
     // 显示消息
     this.scene.events.emit('showMessage', `使用了 ${spellCard.name}！`);
     
+    return true;
+  }
+
+  /**
+   * 设置快捷槽的映射：将槽 slotIndex 指向 spellIndex（spellCardSystem 的索引）
+   */
+  setQuickSlot(slotIndex, spellIndex) {
+    if (!this.quickSlots) this.quickSlots = [0,1,2];
+    if (slotIndex < 0 || slotIndex >= this.quickSlots.length) return false;
+    this.quickSlots[slotIndex] = spellIndex;
     return true;
   }
 

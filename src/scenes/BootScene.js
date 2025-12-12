@@ -175,5 +175,63 @@ export default class BootScene extends Phaser.Scene {
     potionGraphics.fillRect(12, 4, 8, 6);
     potionGraphics.generateTexture('potion', 32, 32);
     potionGraphics.destroy();
+
+    // 创建金币贴图
+    const coinGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    coinGraphics.fillStyle(0xffd700);
+    coinGraphics.fillCircle(12, 12, 10);
+    coinGraphics.fillStyle(0xfff8cc);
+    coinGraphics.fillCircle(12, 12, 5);
+    coinGraphics.generateTexture('coin', 24, 24);
+    coinGraphics.destroy();
+
+    // 创建草药贴图
+    const herbGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    herbGraphics.fillStyle(0x6bff6b);
+    herbGraphics.fillRoundedRect(6, 6, 16, 12, 4);
+    herbGraphics.fillStyle(0x2b8b2b);
+    herbGraphics.fillRect(12, 2, 4, 6);
+    herbGraphics.generateTexture('herb', 28, 28);
+    herbGraphics.destroy();
+
+    // 创建木箱贴图
+    const chestGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    chestGraphics.fillStyle(0x8b5a2b);
+    chestGraphics.fillRoundedRect(2, 8, 28, 18, 3);
+    chestGraphics.fillStyle(0x6b3e1b);
+    chestGraphics.fillRect(2, 8, 28, 4);
+    chestGraphics.generateTexture('chest', 32, 32);
+    chestGraphics.destroy();
+
+    // 创建门贴图
+    const doorGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    doorGraphics.fillStyle(0x5a3b2a);
+    doorGraphics.fillRect(4, 2, 24, 28);
+    doorGraphics.fillStyle(0x3a2b1a);
+    doorGraphics.fillRect(6, 4, 20, 6);
+    doorGraphics.fillStyle(0xffcc66);
+    doorGraphics.fillCircle(24, 16, 2);
+    doorGraphics.generateTexture('door', 32, 32);
+    doorGraphics.destroy();
+
+    // 创建 DemoBoss（水晶核心）贴图
+    const demoCrystalGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    demoCrystalGraphics.fillStyle(0x66ccff);
+    demoCrystalGraphics.fillTriangle(16, 2, 4, 24, 28, 24);
+    demoCrystalGraphics.fillStyle(0xaaeeff);
+    demoCrystalGraphics.fillTriangle(16, 8, 8, 20, 24, 20);
+    demoCrystalGraphics.fillStyle(0xffffff);
+    demoCrystalGraphics.fillCircle(16, 16, 4);
+    demoCrystalGraphics.generateTexture('demoCrystal', 32, 32);
+    demoCrystalGraphics.destroy();
+
+    // 创建小晶体贴图
+    const smallCrystalGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    smallCrystalGraphics.fillStyle(0x88ddff);
+    smallCrystalGraphics.fillTriangle(16, 6, 8, 22, 24, 22);
+    smallCrystalGraphics.fillStyle(0xccffff);
+    smallCrystalGraphics.fillTriangle(16, 10, 11, 19, 21, 19);
+    smallCrystalGraphics.generateTexture('smallCrystal', 32, 32);
+    smallCrystalGraphics.destroy();
   }
 }

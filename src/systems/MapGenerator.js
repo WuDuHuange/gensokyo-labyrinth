@@ -247,14 +247,49 @@ export default class MapGenerator {
     };
     this.tiles[spawnRoom.centerY][spawnRoom.centerX] = TileType.SPAWN;
 
-    // 最后一个房间作为出口
-    const exitRoom = this.rooms[this.rooms.length - 1];
-    exitRoom.type = 'exit';
-    this.exitPoint = {
-      x: exitRoom.centerX,
-      y: exitRoom.centerY
-    };
-    this.tiles[exitRoom.centerY][exitRoom.centerX] = TileType.EXIT;
+    // 现在：最后一个房间作为 Boss 房，出口放在 Boss 房内部（玩家需在该房内击败首领）
+    const lastIndex = this.rooms.length - 1;
+    const exitIndex = Math.max(0, this.rooms.length - 2);
+
+    // 标记 boss 房并尝试扩大其尺寸以显得更大
+    const bossRoom = this.rooms[lastIndex];
+    bossRoom.type = 'boss';
+    // 适度扩大 boss 房（在地图边界内）
+    try {
+      const expand = 2;
+      const nx = Math.max(1, bossRoom.x - expand);
+      const ny = Math.max(1, bossRoom.y - expand);
+      const nw = Math.min(this.width - 2 - nx, bossRoom.width + expand * 2);
+      const nh = Math.min(this.height - 2 - ny, bossRoom.height + expand * 2);
+      // 修改房间并挖出额外地板
+      bossRoom.x = nx;
+      bossRoom.y = ny;
+      bossRoom.width = Math.max(bossRoom.width, nw);
+      bossRoom.height = Math.max(bossRoom.height, nh);
+      bossRoom.centerX = Math.floor(bossRoom.x + bossRoom.width / 2);
+      bossRoom.centerY = Math.floor(bossRoom.y + bossRoom.height / 2);
+      this.carveRoom(bossRoom);
+    } catch (e) {}
+
+    // 将出口放在 boss 房内部中心
+    try {
+      this.tiles[bossRoom.centerY][bossRoom.centerX] = TileType.EXIT;
+      this.exitPoint = { x: bossRoom.centerX, y: bossRoom.centerY };
+      // 保证 bossRoom 标记仍然为 'boss'
+      bossRoom.type = 'boss';
+    } catch (e) {
+      // 兜底：放在 spawn
+      this.exitPoint = { x: this.spawnPoint.x, y: this.spawnPoint.y };
+      this.tiles[this.exitPoint.y][this.exitPoint.x] = TileType.EXIT;
+    }
+
+    // 随机选择一个普通房间作为资源房（resource），放更多资源并可能有特殊入口
+    const candidates = this.rooms.filter(r => r.type === 'normal');
+    if (candidates.length > 0) {
+      const idx = this.randomRange(0, candidates.length - 1);
+      const resRoom = candidates[idx];
+      resRoom.type = 'resource';
+    }
   }
 
   /**

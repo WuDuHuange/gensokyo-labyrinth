@@ -62,6 +62,23 @@ export const ENEMY_CONFIG = {
     defense: 2,
     expReward: 25,
     roomDetectThreshold: 4
+  },
+  smallCrystal: {
+    name: '小晶体',
+    speed: 60,
+    hp: 18,
+    attack: 10,
+    defense: 0,
+    expReward: 15,
+    laserDamage: 10
+  },
+  demoBoss: {
+    name: '水晶核心',
+    speed: 80,
+    hp: 240,
+    attack: 0,
+    defense: 2,
+    expReward: 100
   }
 };
 
@@ -150,5 +167,38 @@ export const ITEM_CONFIG = {
     effect: {
       heal: 25
     }
+  }
+  ,
+  gold_coin: {
+    id: 'gold_coin',
+    name: '金币',
+    type: 'currency',
+    sprite: 'coin',
+    description: '可以用于商店或特殊交互'
+  },
+  herb: {
+    id: 'herb',
+    name: '草药',
+    type: 'consumable',
+    sprite: 'herb',
+    description: '恢复少量生命',
+    effect: {
+      heal: 10
+    }
+  },
+  chest_wood: {
+    id: 'chest_wood',
+    name: '木箱',
+    type: 'container',
+    sprite: 'chest',
+    description: '封存的木箱，打开可能获得物品',
+    // contents: 可掉落的物品与权重
+    contents: [
+      { item: 'potion_small', weight: 60 },
+      { item: 'herb', weight: 30 },
+      { item: 'gold_coin', weight: 40 }
+    ],
+    minDrop: 1,
+    maxDrop: 2
   }
 };

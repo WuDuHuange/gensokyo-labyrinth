@@ -57,7 +57,8 @@ export default class FogOfWar {
   }
 
   // 检查从 (x0,y0) 到 (x1,y1) 的直线是否被阻挡（排除目标点）
-  _isBlockedByWall(mapTiles, x0, y0, x1, y1) {
+  _isBlockedByWall(mapTiles, x0, y0, x1, y1, blockers) {
+    blockers = blockers || [];
     for (const [x, y] of this.bresenham(x0, y0, x1, y1)) {
       // skip starting tile
       if (x === x0 && y === y0) continue;
@@ -65,6 +66,14 @@ export default class FogOfWar {
       if (x === x1 && y === y1) return false;
       if (!mapTiles[y] || mapTiles[y][x] === undefined) return true;
       if (mapTiles[y][x] === TileType.WALL) return true;
+      // blockers list contains objects like {x,y} or [x,y]
+      for (const b of blockers) {
+        try {
+          const bx = Array.isArray(b) ? b[0] : b.x;
+          const by = Array.isArray(b) ? b[1] : b.y;
+          if (bx === x && by === y) return true;
+        } catch (e) {}
+      }
     }
     return false;
   }
@@ -90,7 +99,7 @@ export default class FogOfWar {
         // within radius (circle)
         if (dx * dx + dy * dy <= r * r) {
           // raycast to see if blocked
-          const blocked = this._isBlockedByWall(mapTiles, x0, y0, x, y);
+          const blocked = this._isBlockedByWall(mapTiles, x0, y0, x, y, this._blockers);
           if (!blocked) {
             this.visible[y][x] = true;
             this.explored[y][x] = true;
@@ -99,6 +108,9 @@ export default class FogOfWar {
       }
     }
   }
+
+  // 设置临时视野阻挡点（例如门），compute 时会参考这些点
+  setBlockers(list) { this._blockers = list || []; }
 
   // 返回副本以避免外部误改
   getExplored() { return this.explored; }

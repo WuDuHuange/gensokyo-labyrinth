@@ -397,8 +397,8 @@ export default class GameScene extends Phaser.Scene {
 
     // 菜单开关（Esc）
     if (Phaser.Input.Keyboard.JustDown(this.menuKey)) {
-      // 暂停当前场景并打开菜单场景
-      this.scene.launch('MenuScene');
+      // 暂停当前场景并打开游戏内菜单（InGameMenu）
+      this.scene.launch('InGameMenu');
       this.scene.pause();
       return;
     }

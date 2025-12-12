@@ -3,7 +3,8 @@
  */
 export default class MenuScene extends Phaser.Scene {
   constructor() {
-    super({ key: 'MenuScene' });
+    // 这个文件作为游戏内暂停菜单，使用 InGameMenu 作为场景 key
+    super({ key: 'InGameMenu' });
   }
 
   create() {

@@ -28,11 +28,21 @@ export default class MenuScene extends Phaser.Scene {
     var loadBtn = this.add.text(width/2, height/2 + 100, '读档', { fontSize: '16px', color: '#fff' }).setOrigin(0.5).setInteractive();
 
     var self = this;
+    // 点击
     resume.on('pointerdown', function() { self.closeMenu(); });
     inv.on('pointerdown', function() { self.openInventory(); });
     spell.on('pointerdown', function() { self.openSpellMenu(); });
     saveBtn.on('pointerdown', function() { self.saveGame(); });
     loadBtn.on('pointerdown', function() { self.loadGame(); });
+
+    // hover 高亮（光标在选项上时绿色并略微放大）
+    var hoverIn = function(txt) { try { txt.setColor('#88ff88'); txt.setScale(1.06); } catch (e) {} };
+    var hoverOut = function(txt, defaultColor) { try { txt.setColor(defaultColor); txt.setScale(1); } catch (e) {} };
+    resume.on('pointerover', function() { hoverIn(resume); }); resume.on('pointerout', function() { hoverOut(resume, '#aaffaa'); });
+    inv.on('pointerover', function() { hoverIn(inv); }); inv.on('pointerout', function() { hoverOut(inv, '#ffffff'); });
+    spell.on('pointerover', function() { hoverIn(spell); }); spell.on('pointerout', function() { hoverOut(spell, '#ffffff'); });
+    saveBtn.on('pointerover', function() { hoverIn(saveBtn); }); saveBtn.on('pointerout', function() { hoverOut(saveBtn, '#ffffff'); });
+    loadBtn.on('pointerover', function() { hoverIn(loadBtn); }); loadBtn.on('pointerout', function() { hoverOut(loadBtn, '#ffffff'); });
 
     // 键盘绑定（在 MenuScene 内部监听）
     this.input.keyboard.on('keydown-ESC', function() { self.closeMenu(); });
@@ -55,26 +65,36 @@ export default class MenuScene extends Phaser.Scene {
     var inv = game.player.inventory || [];
     var width = this.cameras.main.width, height = this.cameras.main.height;
 
+    // 创建不透明带边框的二级菜单框，覆盖一级菜单
     var container = this.add.container(0, 0);
-    // 背景遮罩
-    var bg = this.add.rectangle(0, 0, width * 2, height * 2, 0x000000, 0.6).setOrigin(0);
-    container.add(bg);
-    var title = this.add.text(width/2, height/2 - 140, '物品栏', { fontSize: '22px', color: '#fff' }).setOrigin(0.5);
+    var overlay = this.add.rectangle(0, 0, width * 2, height * 2, 0x000000, 0.5).setOrigin(0);
+    container.add(overlay);
+
+    // 主框（不透明，带边框）
+    var boxW = 420, boxH = 360;
+    var box = this.add.rectangle(width/2, height/2, boxW, boxH, 0x0e0e14, 1.0);
+    box.setStrokeStyle(2, 0xffffff, 0.12);
+    container.add(box);
+
+    var title = this.add.text(width/2, height/2 - boxH/2 + 28, '物品栏', { fontSize: '22px', color: '#ffffff' }).setOrigin(0.5);
     container.add(title);
 
     if (!inv || inv.length === 0) {
-      var empty = this.add.text(width/2, height/2 - 80, '背包为空', { fontSize: '18px', color: '#cccccc' }).setOrigin(0.5);
+      var empty = this.add.text(width/2, height/2 - 20, '背包为空', { fontSize: '18px', color: '#cccccc' }).setOrigin(0.5);
       container.add(empty);
     } else {
       for (var i = 0; i < inv.length; i++) {
         (function(itemId, idx, selfRef, gameRef) {
           var cfg = ITEM_CONFIG[itemId] || { name: itemId };
-          var y = height/2 - 100 + idx * 32;
-          var txt = selfRef.add.text(width/2 - 120, y, cfg.name, { fontSize: '16px', color: '#fff' }).setInteractive();
+          var y = height/2 - boxH/2 + 68 + idx * 34;
+          var txt = selfRef.add.text(width/2 - boxW/2 + 24, y, cfg.name, { fontSize: '16px', color: '#ffffff' }).setInteractive();
+          // hover 高亮
+          txt.on('pointerover', function() { try { txt.setColor('#88ff88'); txt.setScale(1.04); } catch (e) {} });
+          txt.on('pointerout', function() { try { txt.setColor('#ffffff'); txt.setScale(1); } catch (e) {} });
           txt.on('pointerdown', function() {
-            // 使用道具
             try { gameRef.player.useItem(idx); } catch (e) {}
             // 刷新背包显示
+            try { container.destroy(true); } catch (e) {}
             selfRef.openInventory();
           });
           container.add(txt);
@@ -82,9 +102,11 @@ export default class MenuScene extends Phaser.Scene {
       }
     }
 
-    var back = this.add.text(width/2, height/2 + 120, '返回', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
-    var self = this;
-    back.on('pointerdown', function() { try { container.destroy(true); self.inventoryContainer = null; } catch (e) {} });
+    var back = this.add.text(width/2, height/2 + boxH/2 - 28, '返回', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
+    back.on('pointerover', function() { try { back.setColor('#88ff88'); back.setScale(1.04); } catch (e) {} });
+    back.on('pointerout', function() { try { back.setColor('#aaffaa'); back.setScale(1); } catch (e) {} });
+    var selfRef = this;
+    back.on('pointerdown', function() { try { container.destroy(true); selfRef.inventoryContainer = null; } catch (e) {} });
     container.add(back);
 
     this.inventoryContainer = container;

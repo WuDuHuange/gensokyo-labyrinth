@@ -7,13 +7,14 @@ import { GAME_CONFIG } from './config/gameConfig.js';
 import BootScene from './scenes/BootScene.js';
 import PreloadScene from './scenes/PreloadScene.js';
 import MainMenuScene from './scenes/MainMenuScene.js';
+import MenuScene from './scenes/MenuScene.js';
 import GameScene from './scenes/GameScene.js';
 import UIScene from './scenes/UIScene.js';
 
 // 创建游戏配置
 const config = {
   ...GAME_CONFIG,
-  scene: [BootScene, PreloadScene, MainMenuScene, GameScene, UIScene]
+  scene: [BootScene, PreloadScene, MainMenuScene, GameScene, UIScene, MenuScene]
 };
 
 // 启动游戏

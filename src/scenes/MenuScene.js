@@ -21,11 +21,11 @@ export default class MenuScene extends Phaser.Scene {
 
     this.add.text(width/2, height/2 - 110, '游戏菜单', { fontSize: '24px', color: '#ffffff' }).setOrigin(0.5);
 
-    var resume = this.add.text(width/2, height/2 - 50, '继续 (Esc)', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
-    var inv = this.add.text(width/2, height/2 - 10, '物品栏 (I)', { fontSize: '18px', color: '#fff' }).setOrigin(0.5).setInteractive();
-    var spell = this.add.text(width/2, height/2 + 30, '符卡切换 (Tab)', { fontSize: '18px', color: '#fff' }).setOrigin(0.5).setInteractive();
-    var saveBtn = this.add.text(width/2, height/2 + 70, '存档', { fontSize: '16px', color: '#fff' }).setOrigin(0.5).setInteractive();
-    var loadBtn = this.add.text(width/2, height/2 + 100, '读档', { fontSize: '16px', color: '#fff' }).setOrigin(0.5).setInteractive();
+    var resume = this.add.text(width/2, height/2 - 50, '继续 (Esc)', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
+    var inv = this.add.text(width/2, height/2 - 10, '物品栏 (I)', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
+    var spell = this.add.text(width/2, height/2 + 30, '符卡切换 (Tab)', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
+    var saveBtn = this.add.text(width/2, height/2 + 70, '存档', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
+    var loadBtn = this.add.text(width/2, height/2 + 100, '读档', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
 
     var self = this;
     // 点击
@@ -38,7 +38,7 @@ export default class MenuScene extends Phaser.Scene {
     // hover 高亮（光标在选项上时绿色并略微放大）
     var hoverIn = function(txt) { try { txt.setColor('#88ff88'); txt.setScale(1.06); } catch (e) {} };
     var hoverOut = function(txt, defaultColor) { try { txt.setColor(defaultColor); txt.setScale(1); } catch (e) {} };
-    resume.on('pointerover', function() { hoverIn(resume); }); resume.on('pointerout', function() { hoverOut(resume, '#aaffaa'); });
+    resume.on('pointerover', function() { hoverIn(resume); }); resume.on('pointerout', function() { hoverOut(resume, '#ffffff'); });
     inv.on('pointerover', function() { hoverIn(inv); }); inv.on('pointerout', function() { hoverOut(inv, '#ffffff'); });
     spell.on('pointerover', function() { hoverIn(spell); }); spell.on('pointerout', function() { hoverOut(spell, '#ffffff'); });
     saveBtn.on('pointerover', function() { hoverIn(saveBtn); }); saveBtn.on('pointerout', function() { hoverOut(saveBtn, '#ffffff'); });
@@ -102,9 +102,9 @@ export default class MenuScene extends Phaser.Scene {
       }
     }
 
-    var back = this.add.text(width/2, height/2 + boxH/2 - 28, '返回', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
+    var back = this.add.text(width/2, height/2 + boxH/2 - 28, '返回', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
     back.on('pointerover', function() { try { back.setColor('#88ff88'); back.setScale(1.04); } catch (e) {} });
-    back.on('pointerout', function() { try { back.setColor('#aaffaa'); back.setScale(1); } catch (e) {} });
+    back.on('pointerout', function() { try { back.setColor('#ffffff'); back.setScale(1); } catch (e) {} });
     var selfRef = this;
     back.on('pointerdown', function() { try { container.destroy(true); selfRef.inventoryContainer = null; } catch (e) {} });
     container.add(back);

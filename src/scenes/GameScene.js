@@ -11,6 +11,7 @@ import SlowFairy from '../entities/enemies/SlowFairy.js';
 import NormalFairy from '../entities/enemies/NormalFairy.js';
 import FastFairy from '../entities/enemies/FastFairy.js';
 import DanmakuFairy from '../entities/enemies/DanmakuFairy.js';
+import ItemSystem from '../systems/ItemSystem.js';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -120,6 +121,15 @@ export default class GameScene extends Phaser.Scene {
     
     // 创建玩家
     this.createPlayer();
+
+    // 初始化道具系统（用于放置与拾取道具）
+    this.itemSystem = new ItemSystem(this);
+    // 在玩家附近放一个测试用的小瓶回复药
+    try {
+      const sx = this.player.tileX + 2;
+      const sy = this.player.tileY;
+      if (this.mapManager.isWalkable(sx, sy)) this.itemSystem.spawnItem(sx, sy, 'potion_small');
+    } catch (e) {}
 
     // 初始化战争迷雾系统
     this.fog = new FogOfWar(this.mapData.width, this.mapData.height);
@@ -595,6 +605,10 @@ export default class GameScene extends Phaser.Scene {
         // 更新主视图和小地图
         this.updateFogVisuals();
       }
+      // 检查是否在当前位置有可拾取道具
+      try {
+        if (this.itemSystem) await this.itemSystem.tryPickupAt(this.player.tileX, this.player.tileY, this.player);
+      } catch (e) { /* ignore pickup errors */ }
       this.endPlayerTurn();
     }
     

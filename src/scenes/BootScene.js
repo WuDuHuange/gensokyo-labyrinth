@@ -166,5 +166,14 @@ export default class BootScene extends Phaser.Scene {
     sparkGraphics.fillCircle(4, 4, 4);
     sparkGraphics.generateTexture('spark', 8, 8);
     sparkGraphics.destroy();
+
+    // 创建治疗药剂贴图（小瓶）
+    const potionGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    potionGraphics.fillStyle(0xffccdd);
+    potionGraphics.fillRoundedRect(8, 6, 16, 20, 4);
+    potionGraphics.fillStyle(0xff6b6b);
+    potionGraphics.fillRect(12, 4, 8, 6);
+    potionGraphics.generateTexture('potion', 32, 32);
+    potionGraphics.destroy();
   }
 }

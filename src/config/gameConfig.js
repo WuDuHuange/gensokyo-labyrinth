@@ -138,3 +138,17 @@ export const COLORS = {
   item: 0xf9ed69,
   exit: 0x00ff88
 };
+
+// 道具配置（示例）
+export const ITEM_CONFIG = {
+  potion_small: {
+    id: 'potion_small',
+    name: '小瓶回复药',
+    type: 'consumable',
+    sprite: 'potion',
+    description: '恢复 25 点生命值',
+    effect: {
+      heal: 25
+    }
+  }
+};

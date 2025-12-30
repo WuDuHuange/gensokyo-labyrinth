@@ -84,6 +84,9 @@ export default class GameScene extends Phaser.Scene {
     
     // 神社位置
     this.shrines = [];
+    
+    // 游戏是否已结束（防止重复调用gameOver/victory）
+    this.isGameEnded = false;
   }
 
   createAimArrow() {
@@ -1711,19 +1714,31 @@ export default class GameScene extends Phaser.Scene {
    * 游戏胜利
    */
   victory() {
+    // 防止重复调用
+    if (this.isGameEnded) return;
+    this.isGameEnded = true;
     this.isProcessingTurn = true;
     
     this.events.emit('showMessage', '🎉 找到了幻想之门！成功逃离迷宫！');
     
     // 显示胜利画面
+    const self = this;
     this.time.delayedCall(1500, () => {
-      this.cameras.main.fadeOut(1000, 0, 0, 0);
-      this.cameras.main.once('camerafadeoutcomplete', () => {
-        try { this.scene.stop('UIScene'); } catch (e) {}
-        // 停止当前游戏场景再返回主菜单，确保可以重新开始
-        try { this.scene.stop(); } catch (e) {}
-        this.scene.start('MenuScene');
-      });
+      try {
+        self.cameras.main.fadeOut(1000, 0, 0, 0);
+        self.cameras.main.once('camerafadeoutcomplete', () => {
+          try { self.scene.stop('UIScene'); } catch (e) {}
+          try { self.scene.stop('InGameMenu'); } catch (e) {}
+          try { self.scene.stop(); } catch (e) {}
+          self.scene.start('MenuScene');
+        });
+      } catch (e) {
+        // 如果淡出失败，直接跳转
+        try { self.scene.stop('UIScene'); } catch (e2) {}
+        try { self.scene.stop('InGameMenu'); } catch (e2) {}
+        try { self.scene.stop(); } catch (e2) {}
+        self.scene.start('MenuScene');
+      }
     });
   }
 
@@ -1731,18 +1746,31 @@ export default class GameScene extends Phaser.Scene {
    * 游戏失败
    */
   gameOver() {
+    // 防止重复调用
+    if (this.isGameEnded) return;
+    this.isGameEnded = true;
     this.isProcessingTurn = true;
     
     this.events.emit('showMessage', '💀 灵梦倒下了...');
     
     // 显示失败画面
+    const self = this;
     this.time.delayedCall(1500, () => {
-      this.cameras.main.fadeOut(1000, 0, 0, 0);
-      this.cameras.main.once('camerafadeoutcomplete', () => {
-        try { this.scene.stop('UIScene'); } catch (e) {}
-        try { this.scene.stop(); } catch (e) {}
-        this.scene.start('MenuScene');
-      });
+      try {
+        self.cameras.main.fadeOut(1000, 0, 0, 0);
+        self.cameras.main.once('camerafadeoutcomplete', () => {
+          try { self.scene.stop('UIScene'); } catch (e) {}
+          try { self.scene.stop('InGameMenu'); } catch (e) {}
+          try { self.scene.stop(); } catch (e) {}
+          self.scene.start('MenuScene');
+        });
+      } catch (e) {
+        // 如果淡出失败，直接跳转
+        try { self.scene.stop('UIScene'); } catch (e2) {}
+        try { self.scene.stop('InGameMenu'); } catch (e2) {}
+        try { self.scene.stop(); } catch (e2) {}
+        self.scene.start('MenuScene');
+      }
     });
   }
 

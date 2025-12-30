@@ -44,7 +44,7 @@ export default class MenuScene extends Phaser.Scene {
 
   createMainMenu() {
     const menuWidth = 320;
-    const menuHeight = 480;
+    const menuHeight = 530; // 增加高度以容纳更多选项
     const menuX = this.width / 2;
     const menuY = this.height / 2;
 
@@ -94,6 +94,7 @@ export default class MenuScene extends Phaser.Scene {
     const options = [
       { text: '继续游戏', key: 'ESC', action: () => this.closeMenu(), icon: '▶' },
       { text: '物品栏', key: 'I', action: () => this.openInventory(), icon: '🎒' },
+      { text: '装备栏', key: 'E', action: () => this.openEquipmentPanel(), icon: '💎' },
       { text: '角色强化', key: 'T', action: () => this.openEnhancePanel(), icon: '⚔' },
       { text: '符卡配置', key: 'TAB', action: () => this.openSpellMenu(), icon: '✦' },
       { text: '存档', key: 'F5', action: () => this.saveGame(), icon: '💾' },
@@ -173,6 +174,7 @@ export default class MenuScene extends Phaser.Scene {
     });
     
     this.input.keyboard.on('keydown-I', function() { if (!self.currentPanel) self.openInventory(); });
+    this.input.keyboard.on('keydown-E', function() { if (!self.currentPanel) self.openEquipmentPanel(); });
     this.input.keyboard.on('keydown-T', function() { if (!self.currentPanel) self.openEnhancePanel(); });
     this.input.keyboard.on('keydown-TAB', function(e) { e.preventDefault(); if (!self.currentPanel) self.openSpellMenu(); });
     this.input.keyboard.on('keydown-F5', function() { if (!self.currentPanel) self.saveGame(); });
@@ -407,6 +409,265 @@ export default class MenuScene extends Phaser.Scene {
     }
   }
 
+  // ================== 装备栏面板 ==================
+  openEquipmentPanel() {
+    const game = this.scene.get('GameScene');
+    if (!game || !game.equipmentSystem) return;
+    
+    this.mainMenuContainer.setVisible(false);
+    
+    const panelWidth = 600;
+    const panelHeight = 500;
+    
+    const container = this.add.container(0, 0);
+    this.currentPanel = container;
+    
+    // 背景
+    const bg = this.add.graphics();
+    bg.fillStyle(this.colors.panel, 0.95);
+    bg.fillRoundedRect(this.width/2 - panelWidth/2, this.height/2 - panelHeight/2, panelWidth, panelHeight, 16);
+    bg.lineStyle(2, this.colors.border, 0.8);
+    bg.strokeRoundedRect(this.width/2 - panelWidth/2, this.height/2 - panelHeight/2, panelWidth, panelHeight, 16);
+    container.add(bg);
+    
+    // 标题
+    const title = this.add.text(this.width/2, this.height/2 - panelHeight/2 + 30, '💎 装备管理', {
+      fontSize: '22px',
+      fontStyle: 'bold',
+      color: this.colors.accent
+    }).setOrigin(0.5);
+    container.add(title);
+    
+    const startX = this.width/2 - panelWidth/2 + 30;
+    const startY = this.height/2 - panelHeight/2 + 80;
+    
+    // ====== 左侧：当前装备槽位 ======
+    this.createText(container, startX, startY, '📌 装备槽位', this.colors.text, '16px');
+    
+    const slots = game.equipmentSystem.slots;
+    const slotNames = { accessory1: '饰品槽 1', accessory2: '饰品槽 2' };
+    let slotY = startY + 35;
+    
+    this.equipSlots = [];
+    this.equipSelectedIndex = 0;
+    
+    let slotIdx = 0;
+    for (const slotKey in slots) {
+      const equipId = slots[slotKey];
+      const slotName = slotNames[slotKey] || slotKey;
+      const y = slotY + slotIdx * 70;
+      
+      // 槽位背景
+      const slotBg = this.add.graphics();
+      slotBg.fillStyle(this.colors.bg, 0.8);
+      slotBg.fillRoundedRect(startX, y, 250, 60, 8);
+      slotBg.lineStyle(1, this.colors.border, 0.6);
+      slotBg.strokeRoundedRect(startX, y, 250, 60, 8);
+      container.add(slotBg);
+      
+      // 槽位名称
+      this.createText(container, startX + 10, y + 8, slotName, this.colors.textDim, '12px');
+      
+      if (equipId) {
+        const cfg = EQUIPMENT_CONFIG[equipId];
+        if (cfg) {
+          // 已装备的物品
+          let rarityColor = '#ffffff';
+          if (cfg.rarity === 'rare') rarityColor = '#6b9fff';
+          else if (cfg.rarity === 'epic') rarityColor = '#bf6bff';
+          
+          const nameText = this.createText(container, startX + 10, y + 26, `◆ ${cfg.name}`, rarityColor, '14px');
+          nameText.setInteractive();
+          
+          const descText = this.createText(container, startX + 10, y + 44, cfg.description, this.colors.textDim, '10px');
+          
+          // 卸下按钮
+          const unequipBtn = this.add.text(startX + 200, y + 30, '[卸下]', {
+            fontSize: '12px',
+            color: this.colors.danger
+          }).setInteractive();
+          container.add(unequipBtn);
+          
+          const self = this;
+          const currentSlotKey = slotKey;
+          unequipBtn.on('pointerover', function() { unequipBtn.setColor('#ff9999'); });
+          unequipBtn.on('pointerout', function() { unequipBtn.setColor(self.colors.danger); });
+          unequipBtn.on('pointerdown', function() { self.unequipItem(currentSlotKey); });
+          
+          this.equipSlots.push({ slotKey, equipId, bg: slotBg, nameText, unequipBtn });
+        }
+      } else {
+        // 空槽位
+        this.createText(container, startX + 10, y + 30, '- 空 -', this.colors.textDim, '14px');
+        this.equipSlots.push({ slotKey, equipId: null, bg: slotBg });
+      }
+      
+      slotIdx++;
+    }
+    
+    // ====== 右侧：背包中的装备道具 ======
+    const rightX = this.width/2 + 20;
+    this.createText(container, rightX, startY, '🎒 可装备物品', this.colors.text, '16px');
+    
+    // 分隔线
+    const divider = this.add.graphics();
+    divider.lineStyle(1, this.colors.border, 0.4);
+    divider.lineBetween(rightX - 20, startY + 25, rightX - 20, this.height/2 + panelHeight/2 - 70);
+    container.add(divider);
+    
+    // 筛选背包中的装备类道具
+    const inv = game.player.inventory || [];
+    const equipItems = [];
+    for (let i = 0; i < inv.length; i++) {
+      const itemId = inv[i];
+      const cfg = ITEM_CONFIG[itemId];
+      if (cfg && cfg.type === 'equipment') {
+        equipItems.push({ itemId, index: i });
+      }
+    }
+    
+    this.equipInvItems = [];
+    this.equipInvSelectedIndex = 0;
+    
+    if (equipItems.length === 0) {
+      this.createText(container, rightX, startY + 40, '背包中没有装备...', this.colors.textDim, '13px');
+    } else {
+      const itemH = 40;
+      for (let i = 0; i < Math.min(equipItems.length, 8); i++) {
+        const { itemId, index } = equipItems[i];
+        const eqCfg = EQUIPMENT_CONFIG[itemId];
+        if (!eqCfg) continue;
+        
+        const y = startY + 40 + i * itemH;
+        
+        // 背景
+        const itemBg = this.add.graphics();
+        container.add(itemBg);
+        
+        let rarityColor = '#ffffff';
+        if (eqCfg.rarity === 'rare') rarityColor = '#6b9fff';
+        else if (eqCfg.rarity === 'epic') rarityColor = '#bf6bff';
+        
+        const text = this.add.text(rightX, y, `• ${eqCfg.name}`, {
+          fontSize: '13px',
+          color: rarityColor
+        }).setInteractive();
+        container.add(text);
+        
+        const desc = this.createText(container, rightX + 10, y + 16, eqCfg.description, this.colors.textDim, '10px');
+        
+        const self = this;
+        const idx = i;
+        const currentItemId = itemId;
+        text.on('pointerover', function() { self.equipInvSelectedIndex = idx; self.updateEquipInvSelection(); });
+        text.on('pointerdown', function() { self.equipItemFromInventory(currentItemId); });
+        
+        this.equipInvItems.push({ itemId, bg: itemBg, text, y });
+      }
+      
+      if (equipItems.length > 8) {
+        this.createText(container, rightX, startY + 40 + 8 * 40, `...还有 ${equipItems.length - 8} 件`, this.colors.textDim, '11px');
+      }
+    }
+    
+    this.updateEquipInvSelection();
+    
+    // 底部属性加成总览
+    const bonusY = this.height/2 + panelHeight/2 - 90;
+    const bonusDivider = this.add.graphics();
+    bonusDivider.lineStyle(1, this.colors.border, 0.5);
+    bonusDivider.lineBetween(startX, bonusY - 10, startX + panelWidth - 60, bonusY - 10);
+    container.add(bonusDivider);
+    
+    this.createText(container, startX, bonusY, '📊 装备属性加成', this.colors.accent, '14px');
+    
+    const bonuses = game.equipmentSystem.bonuses || {};
+    const bonusParts = [];
+    if (bonuses.attackFlat) bonusParts.push(`攻击+${bonuses.attackFlat}`);
+    if (bonuses.defenseFlat) bonusParts.push(`防御+${bonuses.defenseFlat}`);
+    if (bonuses.maxHpFlat) bonusParts.push(`生命+${bonuses.maxHpFlat}`);
+    if (bonuses.maxMpFlat) bonusParts.push(`灵力+${bonuses.maxMpFlat}`);
+    if (bonuses.speedFlat) bonusParts.push(`速度+${bonuses.speedFlat}`);
+    if (bonuses.critChance) bonusParts.push(`暴击+${Math.floor(bonuses.critChance * 100)}%`);
+    if (bonuses.hpRegen) bonusParts.push(`回复/回合+${bonuses.hpRegen}`);
+    if (bonuses.killHeal) bonusParts.push(`击杀回血+${bonuses.killHeal}`);
+    
+    this.createText(container, startX + 10, bonusY + 22, 
+      bonusParts.length > 0 ? bonusParts.join('  |  ') : '暂无加成',
+      bonusParts.length > 0 ? this.colors.success : this.colors.textDim, '12px');
+    
+    // 返回按钮
+    const back = this.add.text(this.width/2, this.height/2 + panelHeight/2 - 25, '返回 (X/ESC)', {
+      fontSize: '14px',
+      color: this.colors.textDim
+    }).setOrigin(0.5).setInteractive();
+    back.on('pointerdown', () => this.closeCurrentPanel());
+    container.add(back);
+    
+    // 导航和确认
+    this.panelNavigate = (dir) => {
+      if (this.equipInvItems && this.equipInvItems.length > 0) {
+        this.equipInvSelectedIndex = (this.equipInvSelectedIndex + dir + this.equipInvItems.length) % this.equipInvItems.length;
+        this.updateEquipInvSelection();
+      }
+    };
+    this.panelConfirm = () => {
+      if (this.equipInvItems && this.equipInvItems.length > 0 && this.equipInvItems[this.equipInvSelectedIndex]) {
+        this.equipItemFromInventory(this.equipInvItems[this.equipInvSelectedIndex].itemId);
+      }
+    };
+  }
+
+  updateEquipInvSelection() {
+    if (!this.equipInvItems) return;
+    const panelWidth = 600;
+    const rightX = this.width/2 + 20;
+    
+    for (let i = 0; i < this.equipInvItems.length; i++) {
+      const item = this.equipInvItems[i];
+      const isSelected = (i === this.equipInvSelectedIndex);
+      
+      item.bg.clear();
+      if (isSelected) {
+        item.bg.fillStyle(this.colors.highlight, 0.3);
+        item.bg.fillRoundedRect(rightX - 5, item.y - 3, 220, 36, 4);
+      }
+      
+      try { item.text.setScale(isSelected ? 1.05 : 1); } catch (e) {}
+    }
+  }
+
+  equipItemFromInventory(itemId) {
+    const game = this.scene.get('GameScene');
+    if (!game || !game.player || !game.equipmentSystem) return;
+    
+    const realIdx = game.player.inventory.indexOf(itemId);
+    if (realIdx !== -1) {
+      try { 
+        game.player.useItem(realIdx);
+        this.showToast(`已装备「${EQUIPMENT_CONFIG[itemId]?.name || itemId}」`);
+      } catch (e) {
+        this.showToast('装备失败');
+      }
+      this.closeCurrentPanel();
+      this.openEquipmentPanel();
+    }
+  }
+
+  unequipItem(slotKey) {
+    const game = this.scene.get('GameScene');
+    if (!game || !game.equipmentSystem) return;
+    
+    const equipId = game.equipmentSystem.unequip(slotKey);
+    if (equipId) {
+      // 卸下的装备返回背包
+      game.player.inventory.push(equipId);
+      this.showToast(`已卸下「${EQUIPMENT_CONFIG[equipId]?.name || equipId}」`);
+    }
+    this.closeCurrentPanel();
+    this.openEquipmentPanel();
+  }
+
   // ================== 角色强化面板 ==================
   openEnhancePanel() {
     const game = this.scene.get('GameScene');
@@ -598,21 +859,67 @@ export default class MenuScene extends Phaser.Scene {
   // ================== 存档/读档 ==================
   saveGame() {
     const game = this.scene.get('GameScene');
-    if (!game) return;
+    if (!game || !game.player) {
+      this.showToast('✗ 无法获取游戏状态');
+      return;
+    }
+    
     try {
+      // 收集完整的游戏状态
       const state = {
-        player: game.player.getStats(),
-        floor: game.floor,
+        version: 1, // 存档版本号，用于未来兼容性
+        timestamp: Date.now(),
+        
+        // 玩家基础状态
+        player: {
+          hp: game.player.hp,
+          maxHp: game.player.maxHp,
+          mp: game.player.mp,
+          maxMp: game.player.maxMp,
+          attack: game.player.attack,
+          defense: game.player.defense,
+          speed: game.player.speed,
+          tileX: game.player.tileX,
+          tileY: game.player.tileY,
+          facing: game.player.facing,
+          inventory: [...game.player.inventory], // 背包物品
+          quickSlots: [...game.player.quickSlots] // 快捷符卡槽
+        },
+        
+        // 游戏进度
+        floor: game.floor || 1,
+        
+        // 金币
         gold: game.spellUpgradeSystem?.gold || 0,
-        talents: game.talentSystem?.acquiredTalents || [],
-        equipment: game.equipmentSystem?.equippedAccessories || [],
-        spellLevels: game.spellUpgradeSystem?.spellLevels || {}
+        
+        // 天赋系统
+        talents: game.talentSystem?.acquiredTalents ? [...game.talentSystem.acquiredTalents] : [],
+        
+        // 装备系统 - 保存装备槽状态
+        equipment: {
+          accessory1: game.equipmentSystem?.slots?.accessory1 || null,
+          accessory2: game.equipmentSystem?.slots?.accessory2 || null
+        },
+        
+        // 符卡升级等级
+        spellLevels: game.spellUpgradeSystem?.levels ? {...game.spellUpgradeSystem.levels} : {},
+        
+        // 神社捐赠状态
+        shrineDonate: {
+          totalDonated: game.shrineDonateSystem?.totalDonated || 0,
+          blessingLevel: game.shrineDonateSystem?.blessingLevel || 0
+        }
       };
+      
       localStorage.setItem('genso_save', JSON.stringify(state));
-      this.showToast('✓ 存档成功');
+      
+      // 格式化时间显示
+      const date = new Date(state.timestamp);
+      const timeStr = `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
+      this.showToast(`✓ 存档成功 (${timeStr})`);
     } catch (e) {
       console.error('save failed', e);
-      this.showToast('✗ 存档失败');
+      this.showToast('✗ 存档失败: ' + e.message);
     }
   }
 
@@ -622,22 +929,90 @@ export default class MenuScene extends Phaser.Scene {
       this.showToast('没有找到存档');
       return;
     }
+    
     try {
       const state = JSON.parse(data);
       const game = this.scene.get('GameScene');
-      if (!game) return;
+      if (!game || !game.player) {
+        this.showToast('✗ 无法获取游戏状态');
+        return;
+      }
       
-      game.player.hp = state.player?.hp || game.player.hp;
-      game.player.mp = state.player?.mp || game.player.mp;
+      // 恢复玩家状态
+      if (state.player) {
+        game.player.hp = state.player.hp ?? game.player.hp;
+        game.player.maxHp = state.player.maxHp ?? game.player.maxHp;
+        game.player.mp = state.player.mp ?? game.player.mp;
+        game.player.maxMp = state.player.maxMp ?? game.player.maxMp;
+        game.player.attack = state.player.attack ?? game.player.attack;
+        game.player.defense = state.player.defense ?? game.player.defense;
+        game.player.speed = state.player.speed ?? game.player.speed;
+        
+        // 恢复背包
+        if (state.player.inventory && Array.isArray(state.player.inventory)) {
+          game.player.inventory = [...state.player.inventory];
+        }
+        
+        // 恢复快捷符卡槽
+        if (state.player.quickSlots && Array.isArray(state.player.quickSlots)) {
+          game.player.quickSlots = [...state.player.quickSlots];
+        }
+        
+        // 恢复朝向
+        if (state.player.facing) {
+          game.player.facing = state.player.facing;
+        }
+      }
       
-      if (state.gold && game.spellUpgradeSystem) {
+      // 恢复金币
+      if (state.gold !== undefined && game.spellUpgradeSystem) {
         game.spellUpgradeSystem.gold = state.gold;
       }
       
-      this.showToast('✓ 读档成功（部分状态已恢复）');
+      // 恢复天赋
+      if (state.talents && Array.isArray(state.talents) && game.talentSystem) {
+        game.talentSystem.acquiredTalents = [...state.talents];
+        game.talentSystem.recalculateBonuses();
+      }
+      
+      // 恢复装备
+      if (state.equipment && game.equipmentSystem) {
+        // 先清空当前装备
+        game.equipmentSystem.slots = {
+          accessory1: state.equipment.accessory1 || null,
+          accessory2: state.equipment.accessory2 || null
+        };
+        game.equipmentSystem.recalculateBonuses();
+        game.equipmentSystem.updatePlayerStats();
+      }
+      
+      // 恢复符卡升级等级
+      if (state.spellLevels && game.spellUpgradeSystem) {
+        game.spellUpgradeSystem.levels = {...state.spellLevels};
+        // 重新应用符卡升级效果
+        try { game.spellUpgradeSystem.applyAllBonuses(); } catch (e) {}
+      }
+      
+      // 恢复神社捐赠状态
+      if (state.shrineDonate && game.shrineDonateSystem) {
+        game.shrineDonateSystem.totalDonated = state.shrineDonate.totalDonated || 0;
+        game.shrineDonateSystem.blessingLevel = state.shrineDonate.blessingLevel || 0;
+      }
+      
+      // 更新UI
+      try { game.updateUI(); } catch (e) {}
+      
+      // 显示存档时间
+      let timeInfo = '';
+      if (state.timestamp) {
+        const date = new Date(state.timestamp);
+        timeInfo = ` (${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')})`;
+      }
+      
+      this.showToast(`✓ 读档成功${timeInfo}`);
     } catch (e) {
       console.error('load failed', e);
-      this.showToast('✗ 读档失败');
+      this.showToast('✗ 读档失败: ' + e.message);
     }
   }
 

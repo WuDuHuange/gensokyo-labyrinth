@@ -178,6 +178,39 @@ export default class TalentSystem {
   }
   
   /**
+   * 重新计算所有加成（用于读档恢复）
+   */
+  recalculateBonuses() {
+    // 重置加成
+    this.bonuses = {
+      attackMult: 1.0,
+      attackFlat: 0,
+      defenseMult: 1.0,
+      defenseFlat: 0,
+      maxHpFlat: 0,
+      maxMpFlat: 0,
+      speedFlat: 0,
+      hpRegen: 0,
+      mpRegenMult: 1.0,
+      killHeal: 0,
+      critChance: 0,
+      extraDrop: 0,
+      trapSense: false
+    };
+    
+    // 重新应用所有已获得天赋的效果
+    for (const talentId of this.acquiredTalents) {
+      const config = TALENT_CONFIG[talentId];
+      if (config && config.effect) {
+        this.applyEffect(config.effect);
+      }
+    }
+    
+    // 更新玩家属性
+    this.updatePlayerStats();
+  }
+  
+  /**
    * 更新玩家属性
    */
   updatePlayerStats() {

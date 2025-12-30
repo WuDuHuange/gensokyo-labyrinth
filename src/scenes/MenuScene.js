@@ -27,6 +27,17 @@ export default class MenuScene extends Phaser.Scene {
     var saveBtn = this.add.text(width/2, height/2 + 70, '存档', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
     var loadBtn = this.add.text(width/2, height/2 + 100, '读档', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
 
+    // 存储菜单选项用于键盘导航
+    this.menuItems = [resume, inv, spell, saveBtn, loadBtn];
+    this.menuActions = [
+      function() { self.closeMenu(); },
+      function() { self.openInventory(); },
+      function() { self.openSpellMenu(); },
+      function() { self.saveGame(); },
+      function() { self.loadGame(); }
+    ];
+    this.selectedIndex = 0;
+
     var self = this;
     // 点击
     resume.on('pointerdown', function() { self.closeMenu(); });
@@ -38,16 +49,64 @@ export default class MenuScene extends Phaser.Scene {
     // hover 高亮（光标在选项上时绿色并略微放大）
     var hoverIn = function(txt) { try { txt.setColor('#88ff88'); txt.setScale(1.06); } catch (e) {} };
     var hoverOut = function(txt, defaultColor) { try { txt.setColor(defaultColor); txt.setScale(1); } catch (e) {} };
-    resume.on('pointerover', function() { hoverIn(resume); }); resume.on('pointerout', function() { hoverOut(resume, '#ffffff'); });
-    inv.on('pointerover', function() { hoverIn(inv); }); inv.on('pointerout', function() { hoverOut(inv, '#ffffff'); });
-    spell.on('pointerover', function() { hoverIn(spell); }); spell.on('pointerout', function() { hoverOut(spell, '#ffffff'); });
-    saveBtn.on('pointerover', function() { hoverIn(saveBtn); }); saveBtn.on('pointerout', function() { hoverOut(saveBtn, '#ffffff'); });
-    loadBtn.on('pointerover', function() { hoverIn(loadBtn); }); loadBtn.on('pointerout', function() { hoverOut(loadBtn, '#ffffff'); });
+    resume.on('pointerover', function() { self.selectedIndex = 0; self.updateMenuSelection(); });
+    inv.on('pointerover', function() { self.selectedIndex = 1; self.updateMenuSelection(); });
+    spell.on('pointerover', function() { self.selectedIndex = 2; self.updateMenuSelection(); });
+    saveBtn.on('pointerover', function() { self.selectedIndex = 3; self.updateMenuSelection(); });
+    loadBtn.on('pointerover', function() { self.selectedIndex = 4; self.updateMenuSelection(); });
 
     // 键盘绑定（在 MenuScene 内部监听）
     this.input.keyboard.on('keydown-ESC', function() { self.closeMenu(); });
     this.input.keyboard.on('keydown-I', function() { self.openInventory(); });
     this.input.keyboard.on('keydown-TAB', function(e) { e.preventDefault(); self.openSpellMenu(); });
+
+    // 上下键选择
+    this.input.keyboard.on('keydown-UP', function() { self.navigateMenu(-1); });
+    this.input.keyboard.on('keydown-DOWN', function() { self.navigateMenu(1); });
+    this.input.keyboard.on('keydown-W', function() { self.navigateMenu(-1); });
+    this.input.keyboard.on('keydown-S', function() { self.navigateMenu(1); });
+
+    // Z 或 Enter 确定
+    this.input.keyboard.on('keydown-Z', function() { self.confirmSelection(); });
+    this.input.keyboard.on('keydown-ENTER', function() { self.confirmSelection(); });
+
+    // 初始高亮第一个选项
+    this.updateMenuSelection();
+  }
+
+  // 导航菜单（上下移动）
+  navigateMenu(direction) {
+    // 如果物品栏子菜单打开，交给子菜单处理
+    if (this.inventoryContainer) {
+      this.navigateInventory(direction);
+      return;
+    }
+    this.selectedIndex = (this.selectedIndex + direction + this.menuItems.length) % this.menuItems.length;
+    this.updateMenuSelection();
+  }
+
+  // 更新菜单选中高亮
+  updateMenuSelection() {
+    for (var i = 0; i < this.menuItems.length; i++) {
+      var item = this.menuItems[i];
+      if (i === this.selectedIndex) {
+        try { item.setColor('#88ff88'); item.setScale(1.06); } catch (e) {}
+      } else {
+        try { item.setColor('#ffffff'); item.setScale(1); } catch (e) {}
+      }
+    }
+  }
+
+  // 确认选择
+  confirmSelection() {
+    // 如果物品栏子菜单打开，确认子菜单选项
+    if (this.inventoryContainer) {
+      this.confirmInventorySelection();
+      return;
+    }
+    if (this.menuActions[this.selectedIndex]) {
+      this.menuActions[this.selectedIndex]();
+    }
   }
 
   closeMenu() {
@@ -65,6 +124,18 @@ export default class MenuScene extends Phaser.Scene {
     var inv = game.player.inventory || [];
     var width = this.cameras.main.width, height = this.cameras.main.height;
 
+    // 合并重复道具：统计数量
+    var itemCounts = {};
+    var itemOrder = []; // 保留顺序
+    for (var i = 0; i < inv.length; i++) {
+      var itemId = inv[i];
+      if (itemCounts[itemId] === undefined) {
+        itemCounts[itemId] = 0;
+        itemOrder.push(itemId);
+      }
+      itemCounts[itemId]++;
+    }
+
     // 创建不透明带边框的二级菜单框，覆盖一级菜单
     var container = this.add.container(0, 0);
     var overlay = this.add.rectangle(0, 0, width * 2, height * 2, 0x000000, 0.5).setOrigin(0);
@@ -76,40 +147,148 @@ export default class MenuScene extends Phaser.Scene {
     box.setStrokeStyle(2, 0xffffff, 0.12);
     container.add(box);
 
-    var title = this.add.text(width/2, height/2 - boxH/2 + 28, '物品栏', { fontSize: '22px', color: '#ffffff' }).setOrigin(0.5);
+    var title = this.add.text(width/2, height/2 - boxH/2 + 28, '物品栏 (上下选择 / Z或Enter使用 / X或Esc返回)', { fontSize: '14px', color: '#ffffff' }).setOrigin(0.5);
     container.add(title);
+
+    // 存储物品栏选项用于键盘导航
+    this.invItems = [];
+    this.invItemData = []; // { itemId, canUse }
+    this.invSelectedIndex = 0;
+
+    var self = this;
 
     if (!inv || inv.length === 0) {
       var empty = this.add.text(width/2, height/2 - 20, '背包为空', { fontSize: '18px', color: '#cccccc' }).setOrigin(0.5);
       container.add(empty);
     } else {
-      for (var i = 0; i < inv.length; i++) {
-        (function(itemId, idx, selfRef, gameRef) {
+      for (var idx = 0; idx < itemOrder.length; idx++) {
+        (function(itemId, displayIdx, selfRef, gameRef) {
           var cfg = ITEM_CONFIG[itemId] || { name: itemId };
-          var y = height/2 - boxH/2 + 68 + idx * 34;
-          var txt = selfRef.add.text(width/2 - boxW/2 + 24, y, cfg.name, { fontSize: '16px', color: '#ffffff' }).setInteractive();
-          // hover 高亮
-          txt.on('pointerover', function() { try { txt.setColor('#88ff88'); txt.setScale(1.04); } catch (e) {} });
-          txt.on('pointerout', function() { try { txt.setColor('#ffffff'); txt.setScale(1); } catch (e) {} });
+          var count = itemCounts[itemId];
+          var y = height/2 - boxH/2 + 68 + displayIdx * 34;
+
+          // 显示名称和数量
+          var displayText = cfg.name;
+          if (count > 1) {
+            displayText += ' x' + count;
+          }
+
+          // 判断是否可使用（金币不可使用）
+          var canUse = cfg.type !== 'currency';
+          var textColor = canUse ? '#ffffff' : '#888888';
+
+          var txt = selfRef.add.text(width/2 - boxW/2 + 24, y, displayText, { fontSize: '16px', color: textColor }).setInteractive();
+
+          // hover 与点击
+          txt.on('pointerover', function() {
+            selfRef.invSelectedIndex = displayIdx;
+            selfRef.updateInventorySelection();
+          });
           txt.on('pointerdown', function() {
-            try { gameRef.player.useItem(idx); } catch (e) {}
+            if (!canUse) {
+              // 金币不可使用，显示提示
+              var ui = selfRef.scene.get('UIScene');
+              if (ui && ui.events) ui.events.emit('showMessage', '金币不能直接使用');
+              return;
+            }
+            // 找到该物品在原背包中的第一个索引
+            var realIdx = gameRef.player.inventory.indexOf(itemId);
+            if (realIdx !== -1) {
+              try { gameRef.player.useItem(realIdx); } catch (e) {}
+            }
             // 刷新背包显示
             try { container.destroy(true); } catch (e) {}
             selfRef.openInventory();
           });
+
+          selfRef.invItems.push(txt);
+          selfRef.invItemData.push({ itemId: itemId, canUse: canUse });
           container.add(txt);
-        })(inv[i], i, this, game);
+        })(itemOrder[idx], idx, this, game);
       }
     }
 
-    var back = this.add.text(width/2, height/2 + boxH/2 - 28, '返回', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
-    back.on('pointerover', function() { try { back.setColor('#88ff88'); back.setScale(1.04); } catch (e) {} });
-    back.on('pointerout', function() { try { back.setColor('#ffffff'); back.setScale(1); } catch (e) {} });
-    var selfRef = this;
-    back.on('pointerdown', function() { try { container.destroy(true); selfRef.inventoryContainer = null; } catch (e) {} });
+    // 返回按钮
+    var back = this.add.text(width/2, height/2 + boxH/2 - 28, '返回 (X/Esc)', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5).setInteractive();
+    back.on('pointerover', function() {
+      self.invSelectedIndex = self.invItems.length; // 最后一个位置是返回
+      self.updateInventorySelection();
+    });
+    back.on('pointerdown', function() { try { container.destroy(true); self.inventoryContainer = null; self.invItems = null; } catch (e) {} });
+    this.invItems.push(back);
+    this.invItemData.push({ itemId: '__back__', canUse: true });
     container.add(back);
 
     this.inventoryContainer = container;
+
+    // 键盘：X 或 Esc 返回
+    this.input.keyboard.once('keydown-X', function() {
+      if (self.inventoryContainer) {
+        try { self.inventoryContainer.destroy(true); self.inventoryContainer = null; self.invItems = null; } catch (e) {}
+      }
+    });
+
+    // 初始高亮
+    this.updateInventorySelection();
+  }
+
+  // 导航物品栏
+  navigateInventory(direction) {
+    if (!this.invItems || this.invItems.length === 0) return;
+    this.invSelectedIndex = (this.invSelectedIndex + direction + this.invItems.length) % this.invItems.length;
+    this.updateInventorySelection();
+  }
+
+  // 更新物品栏选中高亮
+  updateInventorySelection() {
+    if (!this.invItems) return;
+    for (var i = 0; i < this.invItems.length; i++) {
+      var item = this.invItems[i];
+      var data = this.invItemData[i];
+      var isSelected = (i === this.invSelectedIndex);
+      var baseColor = (data && data.canUse === false) ? '#888888' : '#ffffff';
+
+      if (isSelected) {
+        try { item.setColor('#88ff88'); item.setScale(1.06); } catch (e) {}
+      } else {
+        try { item.setColor(baseColor); item.setScale(1); } catch (e) {}
+      }
+    }
+  }
+
+  // 确认物品栏选择
+  confirmInventorySelection() {
+    if (!this.invItems || this.invSelectedIndex < 0) return;
+
+    var data = this.invItemData[this.invSelectedIndex];
+    if (!data) return;
+
+    // 返回按钮
+    if (data.itemId === '__back__') {
+      try { this.inventoryContainer.destroy(true); this.inventoryContainer = null; this.invItems = null; } catch (e) {}
+      return;
+    }
+
+    // 金币不可使用
+    if (!data.canUse) {
+      var ui = this.scene.get('UIScene');
+      if (ui && ui.events) ui.events.emit('showMessage', '金币不能直接使用');
+      return;
+    }
+
+    // 使用道具
+    var game = this.scene.get('GameScene');
+    if (!game || !game.player) return;
+
+    var realIdx = game.player.inventory.indexOf(data.itemId);
+    if (realIdx !== -1) {
+      try { game.player.useItem(realIdx); } catch (e) {}
+    }
+
+    // 刷新背包显示
+    var self = this;
+    try { this.inventoryContainer.destroy(true); this.inventoryContainer = null; } catch (e) {}
+    this.openInventory();
   }
 
   openSpellMenu() {

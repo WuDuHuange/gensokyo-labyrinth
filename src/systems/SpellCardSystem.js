@@ -10,14 +10,51 @@ export class SpellCard {
     this.scene = scene;
     this.name = config.name;
     this.type = config.type;
+    this.baseMpCost = config.mpCost; // 保存基础值
     this.mpCost = config.mpCost;
+    this.baseCooldown = config.cooldown; // 保存基础值
     this.cooldown = config.cooldown;
+    this.baseDamage = config.damage; // 保存基础值
     this.damage = config.damage;
     this.currentCooldown = 0;
+    
+    // 升级加成（由 SpellUpgradeSystem 设置）
+    this._upgradeBonus = null;
+  }
+  
+  /**
+   * 获取升级后的实际伤害
+   */
+  getEffectiveDamage() {
+    if (this._upgradeBonus && this._upgradeBonus.damageMult) {
+      return Math.floor(this.baseDamage * this._upgradeBonus.damageMult);
+    }
+    return this.baseDamage;
+  }
+  
+  /**
+   * 获取升级后的实际消耗
+   */
+  getEffectiveMpCost() {
+    if (this._upgradeBonus && this._upgradeBonus.mpCostMult) {
+      return Math.ceil(this.baseMpCost * this._upgradeBonus.mpCostMult);
+    }
+    return this.baseMpCost;
+  }
+  
+  /**
+   * 获取升级后的实际冷却
+   */
+  getEffectiveCooldown() {
+    let cd = this.baseCooldown;
+    if (this._upgradeBonus && this._upgradeBonus.cooldownReduction) {
+      cd = Math.max(1, cd - this._upgradeBonus.cooldownReduction);
+    }
+    return cd;
   }
 
   canUse(currentMp) {
-    return currentMp >= this.mpCost && this.currentCooldown === 0;
+    return currentMp >= this.getEffectiveMpCost() && this.currentCooldown === 0;
   }
 
   use(caster, target) {
@@ -29,7 +66,7 @@ export class SpellCard {
   }
 
   startCooldown() {
-    this.currentCooldown = this.cooldown;
+    this.currentCooldown = this.getEffectiveCooldown();
   }
 }
 
@@ -75,7 +112,7 @@ export class MeigyokuAnki extends SpellCard {
       }
     });
 
-    return { damage: this.damage, positions: allHitPositions, piercing: true, projectileCount: offsets.length };
+    return { damage: this.getEffectiveDamage(), positions: allHitPositions, piercing: true, projectileCount: offsets.length };
   }
 
   getSpreadDirections(baseDir) {
@@ -331,7 +368,7 @@ export class MusouMyouji extends SpellCard {
       this.createHomingOrb(startX, startY, target, i);
     }
 
-    return { damage: this.damage, positions: hitPositions, piercing: false, isHoming: true, targets: hitEnemies, hitCount: this.projectileCount };
+    return { damage: this.getEffectiveDamage(), positions: hitPositions, piercing: false, isHoming: true, targets: hitEnemies, hitCount: this.projectileCount };
   }
 
   createHomingOrb(startX, startY, target, index) {

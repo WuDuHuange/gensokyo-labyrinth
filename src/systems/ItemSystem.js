@@ -161,6 +161,20 @@ export default class ItemSystem {
       });
     } catch (e) { try { it.sprite.destroy(); } catch (e) {} }
 
+    // 金币直接加入升级系统，不进入背包
+    if (cfg.type === 'currency' && it.id === 'gold_coin') {
+      try {
+        const goldValue = 10 + Math.floor(Math.random() * 11); // 10-20 金币
+        if (this.scene.spellUpgradeSystem) {
+          this.scene.spellUpgradeSystem.addGold(goldValue);
+        } else {
+          this.scene.events.emit('showMessage', `${player.name} 拾取了 ${cfg.name}（+${goldValue}）`);
+        }
+      } catch (e) {}
+      this.items.splice(idx, 1);
+      return true;
+    }
+
     // 加入玩家背包（不立即触发效果）
     try {
       player.addItem(it.id);
@@ -179,13 +193,55 @@ export default class ItemSystem {
     const cfg = ITEM_CONFIG[itemId];
     if (!cfg) return false;
 
-    // 目前仅实现 heal 效果
+    // 处理装备类道具
+    if (cfg.type === 'equipment') {
+      try {
+        if (this.scene.equipmentSystem) {
+          const oldEquip = this.scene.equipmentSystem.equip(itemId);
+          // 如果替换了旧装备，将其加入背包
+          if (oldEquip) {
+            player.inventory.push(oldEquip);
+          }
+          // 从背包移除已装备的道具
+          player.inventory.splice(index, 1);
+          // 立即更新 UI
+          try { if (this.scene.updateUI) this.scene.updateUI(); } catch (e) {}
+          return true;
+        } else {
+          this.scene.events.emit('showMessage', '无法装备该物品');
+          return false;
+        }
+      } catch (e) {
+        this.scene.events.emit('showMessage', '装备失败');
+        return false;
+      }
+    }
+
+    // 处理回复效果
     if (cfg.type === 'consumable' && cfg.effect && cfg.effect.heal) {
       try { player.heal(cfg.effect.heal); } catch (e) {}
       this.scene.events.emit('showMessage', `${player.name} 使用了 ${cfg.name}，恢复 ${cfg.effect.heal} 点生命！`);
       this.scene.events.emit('showDamage', { x: player.sprite.x, y: player.sprite.y - 20, damage: cfg.effect.heal, isHeal: true });
       // 立即更新 UI 以显示新的血量
       try { if (this.scene.updateUI) this.scene.updateUI(); } catch (e) {}
+    }
+    
+    // 处理天赋书效果
+    if (cfg.type === 'consumable' && cfg.effect && cfg.effect.grantTalent) {
+      try {
+        if (this.scene.talentSystem) {
+          const talent = this.scene.talentSystem.acquireRandom();
+          if (!talent) {
+            // 已拥有所有天赋，不消耗道具
+            this.scene.events.emit('showMessage', '你已习得所有天赋，秘传书失去效果...');
+            return false;
+          }
+        } else {
+          this.scene.events.emit('showMessage', `${player.name} 使用了 ${cfg.name}，但没有任何效果...`);
+        }
+      } catch (e) {
+        this.scene.events.emit('showMessage', `${cfg.name} 使用失败`);
+      }
     }
 
     // 从玩家背包移除

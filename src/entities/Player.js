@@ -16,6 +16,13 @@ export default class Player extends Entity {
     
     this.isPlayer = true;
     
+    // 基础属性（用于天赋系统加成计算）
+    this.baseMaxHp = PLAYER_CONFIG.maxHp;
+    this.baseMaxMp = PLAYER_CONFIG.maxMp;
+    this.baseSpeed = PLAYER_CONFIG.speed;
+    this.baseAttack = PLAYER_CONFIG.attack;
+    this.baseDefense = PLAYER_CONFIG.defense;
+    
     // 灵力值（MP）
     this.maxMp = PLAYER_CONFIG.maxMp;
     this.mp = this.maxMp;
@@ -26,6 +33,9 @@ export default class Player extends Entity {
     
     // 符卡系统引用（由GameScene设置）
     this.spellCardSystem = null;
+    
+    // 天赋系统引用（由GameScene设置）
+    this.talentSystem = null;
 
     // 快捷符卡槽（存放 spellCardSystem.spellCards 的索引）
     this.quickSlots = [0, 1, 2];
@@ -57,6 +67,35 @@ export default class Player extends Entity {
    */
   setSpellCardSystem(system) {
     this.spellCardSystem = system;
+  }
+
+  /**
+   * 受到伤害（重写以应用天赋防御加成）
+   * @param {number} damage 
+   * @returns {number} 实际受到的伤害
+   */
+  takeDamage(damage) {
+    const effectiveDefense = this.getEffectiveDefense();
+    const actualDamage = Math.max(1, damage - effectiveDefense);
+    this.hp -= actualDamage;
+    
+    // 受击视觉效果
+    this.scene.tweens.add({
+      targets: this.sprite,
+      tint: 0xff0000,
+      duration: 100,
+      yoyo: true,
+      onComplete: () => {
+        this.sprite.clearTint();
+      }
+    });
+    
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.die();
+    }
+    
+    return actualDamage;
   }
 
   /**
@@ -116,6 +155,52 @@ export default class Player extends Entity {
   }
 
   /**
+   * 获取经天赋和装备加成后的实际攻击力
+   */
+  getEffectiveAttack() {
+    let value = this.attack;
+    // 天赋加成
+    if (this.talentSystem) {
+      value = this.talentSystem.getAttack(value);
+    }
+    // 装备加成
+    if (this.equipmentSystem) {
+      value += this.equipmentSystem.bonuses.attackFlat;
+    }
+    return value;
+  }
+  
+  /**
+   * 获取经天赋和装备加成后的实际防御力
+   */
+  getEffectiveDefense() {
+    let value = this.defense;
+    // 天赋加成
+    if (this.talentSystem) {
+      value = this.talentSystem.getDefense(value);
+    }
+    // 装备加成
+    if (this.equipmentSystem) {
+      value += this.equipmentSystem.bonuses.defenseFlat;
+    }
+    return value;
+  }
+  
+  /**
+   * 获取综合暴击率
+   */
+  getCritChance() {
+    let chance = 0;
+    if (this.talentSystem) {
+      chance += this.talentSystem.bonuses.critChance;
+    }
+    if (this.equipmentSystem) {
+      chance += this.equipmentSystem.bonuses.critChance;
+    }
+    return chance;
+  }
+
+  /**
    * 攻击敌人
    * @param {Enemy} enemy 
    */
@@ -135,20 +220,30 @@ export default class Player extends Entity {
       });
     });
     
-    // 造成伤害
-    const damage = enemy.takeDamage(this.attack);
+    // 计算伤害（应用天赋+装备加成和暴击）
+    let attackValue = this.getEffectiveAttack();
+    let isCrit = false;
+    const critChance = this.getCritChance();
+    if (critChance > 0 && Math.random() < critChance) {
+      attackValue = Math.floor(attackValue * 1.5);
+      isCrit = true;
+    }
+    
+    const damage = enemy.takeDamage(attackValue);
     
     // 显示伤害数字
     this.scene.events.emit('showDamage', {
       x: enemy.sprite.x,
       y: enemy.sprite.y - 20,
       damage: damage,
-      isHeal: false
+      isHeal: false,
+      isCrit: isCrit
     });
     
     // 显示消息
     if (enemy.isAlive) {
-      this.scene.events.emit('showMessage', `对 ${enemy.name} 造成 ${damage} 点伤害！`);
+      const critMsg = isCrit ? '暴击！' : '';
+      this.scene.events.emit('showMessage', `${critMsg}对 ${enemy.name} 造成 ${damage} 点伤害！`);
     } else {
       this.scene.events.emit('showMessage', `击败了 ${enemy.name}！`);
       this.scene.removeEnemy(enemy);
@@ -288,6 +383,16 @@ export default class Player extends Entity {
           this.scene.removeEnemy(enemy);
         }
       }
+      
+      // 同时检查障碍物
+      try {
+        for (const pos of targetPositions) {
+          const obstacle = this.scene.getObstacleAt(pos.x, pos.y);
+          if (obstacle && obstacle.isAlive) {
+            obstacle.takeDamage(result.damage);
+          }
+        }
+      } catch (e) {}
     } else {
       const enemies = this.scene.getEnemiesInPositions(result.positions);
 
@@ -306,6 +411,16 @@ export default class Player extends Entity {
           this.scene.removeEnemy(enemy);
         }
       }
+      
+      // 同时检查障碍物
+      try {
+        for (const pos of result.positions) {
+          const obstacle = this.scene.getObstacleAt(pos.x, pos.y);
+          if (obstacle && obstacle.isAlive) {
+            obstacle.takeDamage(result.damage);
+          }
+        }
+      } catch (e) {}
     }
   }
 

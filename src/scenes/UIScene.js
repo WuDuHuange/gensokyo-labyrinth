@@ -320,6 +320,44 @@ export default class UIScene extends Phaser.Scene {
       }
     }
     
+    // 绘制特殊房间标记（危险房间红色边框、战斗房间橙色边框）
+    if (mapData.rooms) {
+      for (const room of mapData.rooms) {
+        // 只绘制已探索的房间（房间中心点可见或已探索）
+        const rx = room.centerX, ry = room.centerY;
+        const roomExplored = fog && fog.explored && fog.explored[ry] ? !!fog.explored[ry][rx] : true;
+        if (!roomExplored) continue;
+        
+        let borderColor = null;
+        let fillColor = null;
+        
+        if (room.type === 'danger') {
+          borderColor = room.cleared ? 0x664444 : 0xff4444;  // 红色，已清理变暗
+          fillColor = room.cleared ? 0x331111 : 0x440000;
+        } else if (room.type === 'combat') {
+          borderColor = room.cleared ? 0x664422 : 0xffaa44;  // 橙色，已清理变暗
+          fillColor = room.cleared ? 0x221100 : 0x442200;
+        } else if (room.type === 'boss') {
+          borderColor = 0xff44ff; // 紫色
+          fillColor = 0x330033;
+        } else if (room.type === 'resource') {
+          borderColor = 0x44ff44; // 绿色
+          fillColor = 0x003300;
+        }
+        
+        if (borderColor) {
+          // 绘制房间边框
+          this.minimapGraphics.lineStyle(1, borderColor, 0.8);
+          this.minimapGraphics.strokeRect(
+            offsetX + room.x * scale,
+            offsetY + room.y * scale,
+            room.width * scale,
+            room.height * scale
+          );
+        }
+      }
+    }
+    
     // 绘制出口（遵循迷雾：仅在已探索时显示，可见时更亮）
     if (exitPoint) {
       const ex = exitPoint.x;

@@ -186,6 +186,52 @@ export const ITEM_CONFIG = {
       heal: 10
     }
   },
+  talent_book: {
+    id: 'talent_book',
+    name: '秘传书',
+    type: 'consumable',
+    sprite: 'book',
+    description: '使用后获得一个随机天赋',
+    effect: {
+      grantTalent: true
+    }
+  },
+  // 装备类道具
+  omamori_health: {
+    id: 'omamori_health',
+    name: '健康御守',
+    type: 'equipment',
+    sprite: 'omamori',
+    description: '装备后最大生命值 +30'
+  },
+  omamori_protection: {
+    id: 'omamori_protection',
+    name: '守护御守',
+    type: 'equipment',
+    sprite: 'omamori',
+    description: '装备后防御力 +8'
+  },
+  magatama_power: {
+    id: 'magatama_power',
+    name: '力之勾玉',
+    type: 'equipment',
+    sprite: 'magatama',
+    description: '装备后攻击力 +10'
+  },
+  magatama_spirit: {
+    id: 'magatama_spirit',
+    name: '灵之勾玉',
+    type: 'equipment',
+    sprite: 'magatama_blue',
+    description: '装备后灵力 +15，回复速度 +25%'
+  },
+  ribbon_red: {
+    id: 'ribbon_red',
+    name: '红色缎带',
+    type: 'equipment',
+    sprite: 'ribbon',
+    description: '装备后速度 +15'
+  },
   chest_wood: {
     id: 'chest_wood',
     name: '木箱',
@@ -194,9 +240,13 @@ export const ITEM_CONFIG = {
     description: '封存的木箱，打开可能获得物品',
     // contents: 可掉落的物品与权重
     contents: [
-      { item: 'potion_small', weight: 60 },
-      { item: 'herb', weight: 30 },
-      { item: 'gold_coin', weight: 40 }
+      { item: 'potion_small', weight: 45 },
+      { item: 'herb', weight: 25 },
+      { item: 'gold_coin', weight: 35 },
+      { item: 'talent_book', weight: 12 },
+      { item: 'omamori_health', weight: 8 },
+      { item: 'magatama_power', weight: 8 },
+      { item: 'ribbon_red', weight: 6 }
     ],
     minDrop: 1,
     maxDrop: 2

@@ -7,52 +7,496 @@ export default class DemoBoss extends Enemy {
   constructor(scene, x, y) {
     super(scene, x, y, 'demoCrystal', {
       name: '水晶核心',
-      hp: 240,
+      hp: 300,
       attack: 0,
-      defense: 2,
+      defense: 3,
       speed: 80,
       detectionRange: 99,
       attackRange: 0
     });
 
-    this.burstCd = 0; // 反弹弹幕
-    this.summonCd = 6; // 召唤小晶体，较长冷却
-    this.maxSmall = 8;
+    // 技能冷却
+    this.burstCd = 0;      // 弹幕射击
+    this.summonCd = 5;     // 召唤小晶体
+    this.laserCd = 0;      // 激光扫射（阶段2解锁）
+    this.bombardCd = 0;    // 地面轰炸（阶段3解锁）
+    
+    // 技能参数
+    this.maxSmall = 6;
     this.burstDamage = 12;
     this.fanDamage = 10;
     this.burstRange = 8;
+    this.laserDamage = 18;
+    this.bombardDamage = 25;
+    
+    // 阶段系统
+    this.phase = 1;
+    this.phaseTransitioning = false;
+    
+    // 护盾系统（阶段2）
+    this.shieldActive = false;
+    this.shieldDuration = 0;
+    this.shieldCooldown = 0;
+    
+    // 地面标记（阶段3轰炸用）
+    this.pendingBombs = []; // { x, y, turnsLeft, graphic }
+  }
+
+  /**
+   * 获取当前阶段（根据血量）
+   */
+  getCurrentPhase() {
+    const hpPercent = this.hp / this.maxHp;
+    if (hpPercent > 0.6) return 1;
+    if (hpPercent > 0.3) return 2;
+    return 3;
+  }
+
+  /**
+   * 检查并处理阶段转换
+   */
+  async checkPhaseTransition() {
+    const newPhase = this.getCurrentPhase();
+    if (newPhase > this.phase) {
+      this.phaseTransitioning = true;
+      this.phase = newPhase;
+      
+      // 阶段转换特效
+      await this.phaseTransitionEffect();
+      
+      // 阶段2：开启护盾机制
+      if (newPhase === 2) {
+        this.scene.events.emit('showMessage', '水晶核心进入第二阶段！能量护盾启动！');
+        this.activateShield();
+      }
+      // 阶段3：狂暴模式
+      else if (newPhase === 3) {
+        this.scene.events.emit('showMessage', '水晶核心进入狂暴模式！开始地面轰炸！');
+        // 减少所有技能冷却
+        this.burstCd = 0;
+        this.summonCd = 0;
+      }
+      
+      this.phaseTransitioning = false;
+    }
+  }
+
+  /**
+   * 阶段转换特效：释放冲击波
+   */
+  async phaseTransitionEffect() {
+    const cx = this.tileX * TILE_SIZE + TILE_SIZE / 2;
+    const cy = this.tileY * TILE_SIZE + TILE_SIZE / 2;
+    
+    // 闪烁效果
+    for (let i = 0; i < 3; i++) {
+      this.sprite.setTint(0xffffff);
+      await new Promise(r => this.scene.time.delayedCall(100, r));
+      this.sprite.clearTint();
+      await new Promise(r => this.scene.time.delayedCall(100, r));
+    }
+    
+    // 冲击波
+    const wave = this.scene.add.circle(cx, cy, 20, 0x66ccff, 0.6);
+    wave.setDepth(50);
+    this.scene.tweens.add({
+      targets: wave,
+      radius: 150,
+      alpha: 0,
+      duration: 500,
+      onComplete: () => wave.destroy()
+    });
+    
+    // 对范围内玩家造成伤害
+    const dist = Math.abs(this.scene.player.tileX - this.tileX) + Math.abs(this.scene.player.tileY - this.tileY);
+    if (dist <= 4) {
+      const dmg = this.scene.player.takeDamage(10);
+      this.scene.events.emit('showDamage', {
+        x: this.scene.player.sprite.x,
+        y: this.scene.player.sprite.y - 20,
+        damage: dmg,
+        isHeal: false
+      });
+      this.scene.events.emit('showMessage', '被冲击波击中！');
+    }
+    
+    await new Promise(r => this.scene.time.delayedCall(300, r));
+  }
+
+  /**
+   * 激活护盾
+   */
+  activateShield() {
+    this.shieldActive = true;
+    this.shieldDuration = 3;
+    this.shieldCooldown = 6;
+    
+    // 护盾视觉
+    this.shieldGraphic = this.scene.add.circle(
+      this.sprite.x, this.sprite.y, 24, 0x66ffff, 0.3
+    );
+    this.shieldGraphic.setStrokeStyle(2, 0x00ffff);
+    this.shieldGraphic.setDepth(this.sprite.depth + 1);
+    
+    // 护盾脉冲动画
+    this.scene.tweens.add({
+      targets: this.shieldGraphic,
+      scale: { from: 1, to: 1.2 },
+      alpha: { from: 0.3, to: 0.5 },
+      duration: 500,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  /**
+   * 移除护盾
+   */
+  deactivateShield() {
+    this.shieldActive = false;
+    if (this.shieldGraphic) {
+      this.scene.tweens.killTweensOf(this.shieldGraphic);
+      this.shieldGraphic.destroy();
+      this.shieldGraphic = null;
+    }
+  }
+
+  /**
+   * 覆盖受伤方法：护盾减伤
+   */
+  takeDamage(damage) {
+    let actualDamage = damage;
+    
+    // 护盾减伤50%
+    if (this.shieldActive) {
+      actualDamage = Math.floor(damage * 0.5);
+      this.scene.events.emit('showMessage', '护盾吸收了部分伤害！');
+    }
+    
+    const result = super.takeDamage(actualDamage);
+    
+    // 检查阶段转换
+    if (this.isAlive) {
+      this.checkPhaseTransition();
+    }
+    
+    return result;
   }
 
   async act(player) {
     if (!this.isAlive || !player.isAlive) return;
 
-    // 玩家未进入 Boss 房前不行动（等待激活）
-    if (!this.scene.bossRoomLocked) {
-      return;
+    // 玩家未进入 Boss 房前不行动
+    if (!this.scene.bossRoomLocked) return;
+    
+    // 阶段转换中不行动
+    if (this.phaseTransitioning) return;
+
+    // 处理地面轰炸倒计时
+    await this.processPendingBombs();
+
+    // 更新护盾
+    this.updateShield();
+
+    // 根据阶段选择行动
+    const action = this.selectAction();
+    
+    switch (action) {
+      case 'summon':
+        await this.summonSmallCrystals();
+        this.summonCd = this.phase === 3 ? 4 : 6;
+        break;
+      case 'burst':
+        await this.fireBurstAtPlayer(player);
+        this.burstCd = this.phase === 3 ? 2 : 3;
+        break;
+      case 'laser':
+        await this.fireLaser(player);
+        this.laserCd = 4;
+        break;
+      case 'bombard':
+        await this.startBombardment(player);
+        this.bombardCd = 3;
+        break;
+      default:
+        // 冷却中，空闲
+        await new Promise(r => this.scene.time.delayedCall(80, r));
     }
 
-    // 优先召唤（若小晶体不足且 summonCd 到）
+    // 减少所有冷却
+    this.reduceCooldowns();
+  }
+
+  /**
+   * 选择本回合行动
+   */
+  selectAction() {
     const existing = this.scene.enemies.filter(e => e && e.isSmallCrystal);
+    
+    // 阶段3优先：地面轰炸
+    if (this.phase >= 3 && this.bombardCd <= 0) {
+      return 'bombard';
+    }
+    
+    // 阶段2+：激光扫射
+    if (this.phase >= 2 && this.laserCd <= 0 && Math.random() < 0.4) {
+      return 'laser';
+    }
+    
+    // 召唤小晶体
     if (this.summonCd <= 0 && existing.length < this.maxSmall) {
-      await this.summonSmallCrystals();
-      this.summonCd = 6 + Math.floor(Math.random() * 3);
-      this.burstCd = Math.max(0, this.burstCd - 1);
-      return;
+      return 'summon';
     }
-
-    // 否则使用弹幕攻击
+    
+    // 弹幕射击
     if (this.burstCd <= 0) {
-      await this.fireBurstAtPlayer(player);
-      this.burstCd = 3; // 短 CD
-      this.summonCd = Math.max(0, this.summonCd - 1);
-      return;
+      return 'burst';
     }
+    
+    return 'idle';
+  }
 
-    // 所有技能都在冷却中：递减冷却，空闲一回合（不移动）
+  /**
+   * 减少冷却
+   */
+  reduceCooldowns() {
     this.burstCd = Math.max(0, this.burstCd - 1);
     this.summonCd = Math.max(0, this.summonCd - 1);
-    // 短暂停顿以表示回合已消耗
-    await new Promise(resolve => this.scene.time.delayedCall(80, resolve));
+    this.laserCd = Math.max(0, this.laserCd - 1);
+    this.bombardCd = Math.max(0, this.bombardCd - 1);
+    if (this.shieldCooldown > 0) this.shieldCooldown--;
+  }
+
+  /**
+   * 更新护盾状态
+   */
+  updateShield() {
+    if (this.shieldActive) {
+      this.shieldDuration--;
+      // 更新护盾位置
+      if (this.shieldGraphic) {
+        this.shieldGraphic.setPosition(this.sprite.x, this.sprite.y);
+      }
+      if (this.shieldDuration <= 0) {
+        this.deactivateShield();
+      }
+    } else if (this.phase >= 2 && this.shieldCooldown <= 0) {
+      // 护盾冷却结束，重新激活
+      this.activateShield();
+    }
+  }
+
+  /**
+   * 新技能：激光扫射（阶段2）
+   */
+  async fireLaser(player) {
+    this.scene.events.emit('showMessage', '水晶核心蓄力中...');
+    
+    // 确定激光方向（朝向玩家）
+    const dx = player.tileX - this.tileX;
+    const dy = player.tileY - this.tileY;
+    
+    // 简化为四个基本方向
+    let laserDx = 0, laserDy = 0;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      laserDx = dx > 0 ? 1 : -1;
+    } else {
+      laserDy = dy > 0 ? 1 : -1;
+    }
+    
+    // 预警线（红色虚线）
+    const warningLine = this.scene.add.graphics();
+    warningLine.lineStyle(4, 0xff0000, 0.5);
+    let wx = this.tileX, wy = this.tileY;
+    warningLine.moveTo(wx * TILE_SIZE + TILE_SIZE / 2, wy * TILE_SIZE + TILE_SIZE / 2);
+    for (let i = 0; i < 15; i++) {
+      wx += laserDx;
+      wy += laserDy;
+      if (!this.scene.mapManager.isWalkable(wx, wy)) break;
+    }
+    warningLine.lineTo(wx * TILE_SIZE + TILE_SIZE / 2, wy * TILE_SIZE + TILE_SIZE / 2);
+    warningLine.setDepth(45);
+    
+    // 闪烁预警
+    this.scene.tweens.add({
+      targets: warningLine,
+      alpha: { from: 0.3, to: 0.8 },
+      duration: 200,
+      yoyo: true,
+      repeat: 2
+    });
+    
+    await new Promise(r => this.scene.time.delayedCall(600, r));
+    warningLine.destroy();
+    
+    // 发射激光
+    const laserGraphic = this.scene.add.graphics();
+    laserGraphic.fillStyle(0x00ffff, 0.8);
+    
+    let lx = this.tileX, ly = this.tileY;
+    const hitPositions = [];
+    
+    for (let i = 0; i < 15; i++) {
+      lx += laserDx;
+      ly += laserDy;
+      if (!this.scene.mapManager.isWalkable(lx, ly)) break;
+      hitPositions.push({ x: lx, y: ly });
+      
+      // 绘制激光
+      laserGraphic.fillRect(
+        lx * TILE_SIZE + 8, ly * TILE_SIZE + 8,
+        TILE_SIZE - 16, TILE_SIZE - 16
+      );
+    }
+    laserGraphic.setDepth(46);
+    
+    // 激光造成伤害
+    for (const pos of hitPositions) {
+      if (player.tileX === pos.x && player.tileY === pos.y) {
+        const dmg = player.takeDamage(this.laserDamage);
+        this.scene.events.emit('showDamage', {
+          x: player.sprite.x, y: player.sprite.y - 20,
+          damage: dmg, isHeal: false
+        });
+      }
+      // 也可以伤害小晶体
+      const enemy = this.scene.getEnemyAt(pos.x, pos.y);
+      if (enemy && enemy !== this) {
+        enemy.takeDamage(this.laserDamage);
+      }
+    }
+    
+    // 激光消散
+    this.scene.tweens.add({
+      targets: laserGraphic,
+      alpha: 0,
+      duration: 300,
+      onComplete: () => laserGraphic.destroy()
+    });
+    
+    await new Promise(r => this.scene.time.delayedCall(200, r));
+  }
+
+  /**
+   * 新技能：地面轰炸（阶段3）
+   */
+  async startBombardment(player) {
+    this.scene.events.emit('showMessage', '危险！地面即将爆炸！');
+    
+    // 在玩家周围标记3-4个位置
+    const bombCount = 3 + Math.floor(Math.random() * 2);
+    const positions = [];
+    
+    for (let i = 0; i < bombCount; i++) {
+      // 在玩家周围2格范围内随机选择
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const bx = player.tileX + Math.floor(Math.random() * 5) - 2;
+        const by = player.tileY + Math.floor(Math.random() * 5) - 2;
+        
+        if (!this.scene.mapManager.isWalkable(bx, by)) continue;
+        if (positions.some(p => p.x === bx && p.y === by)) continue;
+        
+        positions.push({ x: bx, y: by });
+        break;
+      }
+    }
+    
+    // 创建预警标记
+    for (const pos of positions) {
+      const warning = this.scene.add.circle(
+        pos.x * TILE_SIZE + TILE_SIZE / 2,
+        pos.y * TILE_SIZE + TILE_SIZE / 2,
+        14, 0xff0000, 0.3
+      );
+      warning.setStrokeStyle(2, 0xff0000);
+      warning.setDepth(40);
+      
+      // 脉冲动画
+      this.scene.tweens.add({
+        targets: warning,
+        scale: { from: 0.8, to: 1.2 },
+        alpha: { from: 0.3, to: 0.6 },
+        duration: 300,
+        yoyo: true,
+        repeat: -1
+      });
+      
+      this.pendingBombs.push({
+        x: pos.x,
+        y: pos.y,
+        turnsLeft: 2,
+        graphic: warning
+      });
+    }
+  }
+
+  /**
+   * 处理待爆炸的炸弹
+   */
+  async processPendingBombs() {
+    const exploding = [];
+    
+    for (let i = this.pendingBombs.length - 1; i >= 0; i--) {
+      const bomb = this.pendingBombs[i];
+      bomb.turnsLeft--;
+      
+      if (bomb.turnsLeft <= 0) {
+        exploding.push(bomb);
+        this.pendingBombs.splice(i, 1);
+      }
+    }
+    
+    // 处理爆炸
+    for (const bomb of exploding) {
+      await this.explodeBomb(bomb);
+    }
+  }
+
+  /**
+   * 炸弹爆炸
+   */
+  async explodeBomb(bomb) {
+    // 移除预警
+    if (bomb.graphic) {
+      this.scene.tweens.killTweensOf(bomb.graphic);
+      bomb.graphic.destroy();
+    }
+    
+    // 爆炸特效
+    const explosion = this.scene.add.circle(
+      bomb.x * TILE_SIZE + TILE_SIZE / 2,
+      bomb.y * TILE_SIZE + TILE_SIZE / 2,
+      8, 0xff6600, 0.9
+    );
+    explosion.setDepth(50);
+    
+    this.scene.tweens.add({
+      targets: explosion,
+      radius: 20,
+      alpha: 0,
+      duration: 300,
+      onComplete: () => explosion.destroy()
+    });
+    
+    // 检查玩家是否在爆炸范围（当前格+相邻格）
+    const player = this.scene.player;
+    const dist = Math.abs(player.tileX - bomb.x) + Math.abs(player.tileY - bomb.y);
+    
+    if (dist === 0) {
+      // 直接命中
+      const dmg = player.takeDamage(this.bombardDamage);
+      this.scene.events.emit('showDamage', {
+        x: player.sprite.x, y: player.sprite.y - 20,
+        damage: dmg, isHeal: false
+      });
+    } else if (dist === 1) {
+      // 溅射伤害（半伤）
+      const dmg = player.takeDamage(Math.floor(this.bombardDamage / 2));
+      this.scene.events.emit('showDamage', {
+        x: player.sprite.x, y: player.sprite.y - 20,
+        damage: dmg, isHeal: false
+      });
+    }
   }
 
   async summonSmallCrystals() {
@@ -229,8 +673,22 @@ export default class DemoBoss extends Enemy {
     }
   }
 
-  // 覆盖死亡：触发 boss 被击败事件
+  // 覆盖死亡：触发 boss 被击败事件，清理残留效果
   die() {
+    // 清理护盾
+    this.deactivateShield();
+    
+    // 清理未爆炸的炸弹
+    for (const bomb of this.pendingBombs) {
+      if (bomb.graphic) {
+        try {
+          this.scene.tweens.killTweensOf(bomb.graphic);
+          bomb.graphic.destroy();
+        } catch (e) {}
+      }
+    }
+    this.pendingBombs = [];
+    
     try { super.die(); } catch (e) {}
     try {
       if (this.scene && this.scene.onBossDefeated) this.scene.onBossDefeated(this);

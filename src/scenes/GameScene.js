@@ -6,12 +6,20 @@ import MapGenerator, { TileType } from '../systems/MapGenerator.js';
 import ActionQueue from '../systems/ActionQueue.js';
 import SpellCardSystem from '../systems/SpellCardSystem.js';
 import FogOfWar from '../systems/FogOfWar.js';
+import TalentSystem from '../systems/TalentSystem.js';
+import EquipmentSystem from '../systems/EquipmentSystem.js';
+import SpellUpgradeSystem from '../systems/SpellUpgradeSystem.js';
+import ShrineDonateSystem from '../systems/ShrineDonateSystem.js';
 import Player from '../entities/Player.js';
 import SlowFairy from '../entities/enemies/SlowFairy.js';
 import NormalFairy from '../entities/enemies/NormalFairy.js';
 import FastFairy from '../entities/enemies/FastFairy.js';
 import DanmakuFairy from '../entities/enemies/DanmakuFairy.js';
 import DemoBoss from '../entities/enemies/DemoBoss.js';
+import ShieldFairy from '../entities/enemies/ShieldFairy.js';
+import SummonerFairy from '../entities/enemies/SummonerFairy.js';
+import Obstacle from '../entities/Obstacle.js';
+import { SpikeTrap, TeleportTrap } from '../entities/Trap.js';
 import ItemSystem from '../systems/ItemSystem.js';
 import Door from '../entities/Door.js';
 
@@ -52,6 +60,30 @@ export default class GameScene extends Phaser.Scene {
     this.bossRoomLocked = false; // 进入 boss 房后启用，阻止离开
     this.exitActive = true; // 默认 true（若存在 boss 房则会在生成时设为 false）
     this.exitSprite = null;
+    
+    // 战斗房系统
+    this.currentCombatRoom = null; // 当前锁定的战斗房
+    this.combatRoomLocked = false; // 是否在战斗房锁定状态
+    this._combatBarrierGraphic = null;
+    
+    // 障碍物和陷阱
+    this.obstacles = [];
+    this.traps = [];
+    
+    // 天赋系统
+    this.talentSystem = null;
+    
+    // 装备系统
+    this.equipmentSystem = null;
+    
+    // 符卡升级系统
+    this.spellUpgradeSystem = null;
+    
+    // 神社捐赠系统
+    this.shrineDonateSystem = null;
+    
+    // 神社位置
+    this.shrines = [];
   }
 
   createAimArrow() {
@@ -136,6 +168,21 @@ export default class GameScene extends Phaser.Scene {
     
     // 创建玩家
     this.createPlayer();
+    
+    // 初始化天赋系统
+    this.talentSystem = new TalentSystem(this, this.player);
+    this.player.talentSystem = this.talentSystem;
+    
+    // 初始化装备系统
+    this.equipmentSystem = new EquipmentSystem(this, this.player);
+    this.player.equipmentSystem = this.equipmentSystem;
+    
+    // 初始化符卡升级系统
+    this.spellUpgradeSystem = new SpellUpgradeSystem(this, this.player, this.spellCardSystem);
+    this.player.spellUpgradeSystem = this.spellUpgradeSystem;
+    
+    // 初始化神社捐赠系统
+    this.shrineDonateSystem = new ShrineDonateSystem(this, this.player);
 
     // 初始化道具系统（用于放置与拾取道具）
     this.itemSystem = new ItemSystem(this);
@@ -160,6 +207,10 @@ export default class GameScene extends Phaser.Scene {
     this.spawnEnemies();
     // 在各房间生成资源 / 宝箱
     try { this.spawnResources(); } catch (e) { /* ignore */ }
+    // 生成障碍物和陷阱
+    try { this.spawnObstaclesAndTraps(); } catch (e) { /* ignore */ }
+    // 生成神社
+    try { this.spawnShrines(); } catch (e) { /* ignore */ }
     
     // 设置摄像机
     this.setupCamera();
@@ -269,6 +320,283 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     }
+  }
+
+  /**
+   * 生成障碍物和陷阱
+   */
+  spawnObstaclesAndTraps() {
+    this.obstacles = [];
+    this.traps = [];
+    
+    if (!this.mapData || !this.mapData.rooms) return;
+    
+    for (const room of this.mapData.rooms) {
+      // 出生点和 boss 房不放陷阱
+      if (room.type === 'spawn' || room.type === 'boss') continue;
+      
+      // 普通房间：随机放置1-2个障碍物
+      const obstacleCount = Math.random() < 0.4 ? 0 : (Math.random() < 0.6 ? 1 : 2);
+      for (let i = 0; i < obstacleCount; i++) {
+        const pos = this.findEmptyPositionInRoom(room);
+        if (pos) {
+          const obstacle = new Obstacle(this, pos.x, pos.y);
+          this.obstacles.push(obstacle);
+        }
+      }
+      
+      // 危险房间和战斗房间放置更多陷阱
+      let trapCount = 0;
+      if (room.type === 'danger') {
+        trapCount = this.mapManager.randomRange(2, 4);
+      } else if (room.type === 'combat') {
+        trapCount = this.mapManager.randomRange(1, 2);
+      } else {
+        trapCount = Math.random() < 0.3 ? 1 : 0;
+      }
+      
+      for (let i = 0; i < trapCount; i++) {
+        const pos = this.findEmptyPositionInRoom(room);
+        if (pos) {
+          // 80% 地刺，20% 传送阵
+          if (Math.random() < 0.8) {
+            const spike = new SpikeTrap(this, pos.x, pos.y);
+            this.traps.push(spike);
+          } else {
+            const portal = new TeleportTrap(this, pos.x, pos.y);
+            this.traps.push(portal);
+          }
+        }
+      }
+    }
+    
+    // 在走廊中随机放置少量陷阱
+    const corridorTraps = this.mapManager.randomRange(1, 3);
+    for (let i = 0; i < corridorTraps; i++) {
+      const pos = this.findEmptyCorridorPosition();
+      if (pos) {
+        const spike = new SpikeTrap(this, pos.x, pos.y);
+        this.traps.push(spike);
+      }
+    }
+  }
+  
+  /**
+   * 在房间内找一个空位置
+   */
+  findEmptyPositionInRoom(room) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const x = this.mapManager.randomRange(room.x + 1, room.x + room.width - 2);
+      const y = this.mapManager.randomRange(room.y + 1, room.y + room.height - 2);
+      
+      if (!this.mapManager.isWalkable(x, y)) continue;
+      if (this.player && this.player.tileX === x && this.player.tileY === y) continue;
+      if (this.enemies.some(e => e.tileX === x && e.tileY === y)) continue;
+      if (this.obstacles.some(o => o.tileX === x && o.tileY === y)) continue;
+      if (this.traps.some(t => t.tileX === x && t.tileY === y)) continue;
+      if (this.doors.some(d => d.tileX === x && d.tileY === y)) continue;
+      // 不要放在道具上
+      if (this.itemSystem && this.itemSystem.items.some(it => it.x === x && it.y === y)) continue;
+      
+      return { x, y };
+    }
+    return null;
+  }
+  
+  /**
+   * 生成神社
+   */
+  spawnShrines() {
+    this.shrines = [];
+    
+    if (!this.mapData || !this.mapData.rooms) return;
+    
+    // 在资源房放置神社
+    const resourceRooms = this.mapData.rooms.filter(r => r.type === 'resource');
+    
+    for (const room of resourceRooms) {
+      // 在房间中心附近放置神社
+      const centerX = Math.floor(room.x + room.width / 2);
+      const centerY = Math.floor(room.y + room.height / 2);
+      
+      // 确保位置可通行
+      if (!this.mapManager.isWalkable(centerX, centerY)) continue;
+      
+      // 创建神社精灵
+      const shrine = {
+        tileX: centerX,
+        tileY: centerY,
+        sprite: this.add.sprite(
+          centerX * TILE_SIZE + TILE_SIZE / 2,
+          centerY * TILE_SIZE + TILE_SIZE / 2,
+          'shrine'
+        ),
+        used: false // 每个神社只能使用一次
+      };
+      shrine.sprite.setDepth(7);
+      
+      this.shrines.push(shrine);
+    }
+    
+    // 如果没有资源房，在地图中随机放置一个神社
+    if (this.shrines.length === 0) {
+      const normalRooms = this.mapData.rooms.filter(r => r.type === 'normal');
+      if (normalRooms.length > 0) {
+        const room = normalRooms[Math.floor(Math.random() * normalRooms.length)];
+        const pos = this.findEmptyPositionInRoom(room);
+        if (pos) {
+          const shrine = {
+            tileX: pos.x,
+            tileY: pos.y,
+            sprite: this.add.sprite(
+              pos.x * TILE_SIZE + TILE_SIZE / 2,
+              pos.y * TILE_SIZE + TILE_SIZE / 2,
+              'shrine'
+            ),
+            used: false
+          };
+          shrine.sprite.setDepth(7);
+          this.shrines.push(shrine);
+        }
+      }
+    }
+  }
+  
+  /**
+   * 获取指定位置的神社
+   */
+  getShrineAt(x, y) {
+    return this.shrines.find(s => s.tileX === x && s.tileY === y && !s.used);
+  }
+  
+  /**
+   * 与神社交互
+   */
+  interactWithShrine(shrine) {
+    if (!shrine || shrine.used) {
+      this.events.emit('showMessage', '这座神社已经没有神力了...');
+      return;
+    }
+    
+    // 显示捐赠菜单
+    this.showShrineDonateMenu(shrine);
+  }
+  
+  /**
+   * 显示神社捐赠菜单
+   */
+  showShrineDonateMenu(shrine) {
+    const options = this.shrineDonateSystem.getDonationOptions();
+    const gold = this.spellUpgradeSystem?.gold || 0;
+    
+    // 创建简易菜单
+    const menuWidth = 280;
+    const menuHeight = 200;
+    const menuX = this.cameras.main.width / 2 - menuWidth / 2;
+    const menuY = this.cameras.main.height / 2 - menuHeight / 2;
+    
+    // 背景
+    const menuBg = this.add.graphics();
+    menuBg.fillStyle(0x222233, 0.95);
+    menuBg.fillRoundedRect(menuX, menuY, menuWidth, menuHeight, 10);
+    menuBg.lineStyle(2, 0xff6b6b);
+    menuBg.strokeRoundedRect(menuX, menuY, menuWidth, menuHeight, 10);
+    menuBg.setScrollFactor(0);
+    menuBg.setDepth(1000);
+    
+    // 标题
+    const title = this.add.text(menuX + menuWidth / 2, menuY + 20, '博丽神社', {
+      fontSize: '18px',
+      fontFamily: 'Arial',
+      color: '#ff6b6b'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+    
+    const goldText = this.add.text(menuX + menuWidth / 2, menuY + 45, `持有金币: ${gold}`, {
+      fontSize: '14px',
+      fontFamily: 'Arial',
+      color: '#ffd700'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+    
+    // 创建选项
+    const optionTexts = [];
+    options.forEach((opt, idx) => {
+      const optY = menuY + 75 + idx * 25;
+      const color = opt.canAfford ? '#ffffff' : '#666666';
+      const text = this.add.text(menuX + 20, optY, `${idx + 1}. ${opt.name}捐赠 (${opt.amount}金币)`, {
+        fontSize: '14px',
+        fontFamily: 'Arial',
+        color: color
+      }).setScrollFactor(0).setDepth(1001);
+      optionTexts.push(text);
+    });
+    
+    const cancelText = this.add.text(menuX + 20, menuY + menuHeight - 30, 'ESC. 离开', {
+      fontSize: '14px',
+      fontFamily: 'Arial',
+      color: '#aaaaaa'
+    }).setScrollFactor(0).setDepth(1001);
+    
+    // 处理输入
+    const cleanup = () => {
+      menuBg.destroy();
+      title.destroy();
+      goldText.destroy();
+      optionTexts.forEach(t => t.destroy());
+      cancelText.destroy();
+      this.input.keyboard.off('keydown', handleKey);
+    };
+    
+    const handleKey = (event) => {
+      const key = event.key;
+      
+      if (key === 'Escape') {
+        cleanup();
+        return;
+      }
+      
+      const idx = parseInt(key) - 1;
+      if (idx >= 0 && idx < options.length) {
+        if (options[idx].canAfford) {
+          cleanup();
+          const result = this.shrineDonateSystem.donate(idx);
+          if (result.success) {
+            // 神社使用后标记
+            shrine.used = true;
+            shrine.sprite.setTint(0x666666);
+          }
+          this.updateUI();
+        } else {
+          this.events.emit('showMessage', '金币不足！');
+        }
+      }
+    };
+    
+    this.input.keyboard.on('keydown', handleKey);
+  }
+
+  /**
+   * 在走廊中找一个空位置
+   */
+  findEmptyCorridorPosition() {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const x = this.mapManager.randomRange(1, this.mapData.width - 2);
+      const y = this.mapManager.randomRange(1, this.mapData.height - 2);
+      
+      if (!this.mapManager.isWalkable(x, y)) continue;
+      
+      // 确保不在房间内
+      const inRoom = this.mapData.rooms.some(r => 
+        x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
+      );
+      if (inRoom) continue;
+      
+      if (this.player && this.player.tileX === x && this.player.tileY === y) continue;
+      if (this.obstacles.some(o => o.tileX === x && o.tileY === y)) continue;
+      if (this.traps.some(t => t.tileX === x && t.tileY === y)) continue;
+      
+      return { x, y };
+    }
+    return null;
   }
 
   // 查找房间所有入口（返回房间内侧可放门的格子列表）
@@ -474,23 +802,60 @@ export default class GameScene extends Phaser.Scene {
     this.enemies = [];
     const { enemySpawnPoints } = this.mapData;
     
-    // 敌人类型分布
-    const enemyTypes = [SlowFairy, NormalFairy, FastFairy, DanmakuFairy];
-    const weights = [0.3, 0.3, 0.2, 0.2]; // 各类型权重
+    // 普通敌人类型分布
+    const normalEnemyTypes = [SlowFairy, NormalFairy, FastFairy, DanmakuFairy];
+    const normalWeights = [0.3, 0.3, 0.2, 0.2];
+    
+    // 精英敌人类型
+    const eliteTypes = [ShieldFairy, SummonerFairy];
     
     for (const spawnPoint of enemySpawnPoints) {
-      // 随机选择敌人类型
-      const EnemyClass = this.weightedRandom(enemyTypes, weights);
-      const enemy = new EnemyClass(this, spawnPoint.x, spawnPoint.y);
-      // 记录敌人所属房间，供 AI 决策使用
-      try { enemy.room = spawnPoint.room; } catch (e) {}
+      const room = spawnPoint.room;
+      let EnemyClass;
+      let enemy;
+      
+      // 根据房间类型选择敌人
+      if (room && room.type === 'danger') {
+        // 危险房间：50% 概率生成精英，敌人属性增强
+        if (Math.random() < 0.5) {
+          EnemyClass = eliteTypes[Math.floor(Math.random() * eliteTypes.length)];
+        } else {
+          EnemyClass = this.weightedRandom(normalEnemyTypes, normalWeights);
+        }
+        enemy = new EnemyClass(this, spawnPoint.x, spawnPoint.y);
+        // 危险房间敌人强化
+        enemy.hp = Math.floor(enemy.hp * 1.5);
+        enemy.maxHp = enemy.hp;
+        enemy.attack = Math.floor(enemy.attack * 1.3);
+        enemy.sprite.setTint(0xff8888);  // 红色标记
+      } else if (room && room.type === 'combat') {
+        // 战斗房间：30% 概率生成精英
+        if (Math.random() < 0.3) {
+          EnemyClass = eliteTypes[Math.floor(Math.random() * eliteTypes.length)];
+        } else {
+          EnemyClass = this.weightedRandom(normalEnemyTypes, normalWeights);
+        }
+        enemy = new EnemyClass(this, spawnPoint.x, spawnPoint.y);
+      } else {
+        // 普通房间
+        EnemyClass = this.weightedRandom(normalEnemyTypes, normalWeights);
+        enemy = new EnemyClass(this, spawnPoint.x, spawnPoint.y);
+      }
+      
+      // 记录敌人所属房间
+      try { enemy.room = room; } catch (e) {}
       enemy.sprite.setDepth(10);
       
       this.enemies.push(enemy);
       this.actionQueue.addEntity(enemy);
     }
     
-    this.events.emit('showMessage', `本层有 ${this.enemies.length} 个敌人！`);
+    // 统计精英数量
+    const eliteCount = this.enemies.filter(e => e.isElite).length;
+    const dangerRooms = this.mapData.rooms.filter(r => r.type === 'danger').length;
+    const combatRooms = this.mapData.rooms.filter(r => r.type === 'combat').length;
+    
+    this.events.emit('showMessage', `本层有 ${this.enemies.length} 个敌人（精英: ${eliteCount}），战斗房: ${combatRooms}，危险房: ${dangerRooms}`);
   }
 
   /**
@@ -792,6 +1157,17 @@ export default class GameScene extends Phaser.Scene {
       }
       // 检查是否进入 Boss 房并触发结界锁定
       try { this.checkEnterBossRoom(); } catch (e) {}
+      // 检查是否进入战斗房并触发锁定
+      try { this.checkEnterCombatRoom(); } catch (e) {}
+      // 检查陷阱触发
+      try { this.checkTraps(this.player); } catch (e) {}
+      // 检查神社交互
+      try {
+        const shrine = this.getShrineAt(this.player.tileX, this.player.tileY);
+        if (shrine) {
+          this.interactWithShrine(shrine);
+        }
+      } catch (e) {}
       // 检查是否在当前位置有可拾取道具（加入背包）
       try {
         if (this.itemSystem) this.itemSystem.tryPickupAt(this.player.tileX, this.player.tileY, this.player);
@@ -802,13 +1178,21 @@ export default class GameScene extends Phaser.Scene {
     this.isProcessingTurn = false;
   }
 
-  // 返回用于迷雾计算的阻挡点（闭合门的位置）
+  // 返回用于迷雾计算的阻挡点（闭合门和障碍物的位置）
   getVisionBlockers() {
     try {
-      if (!this.doors || this.doors.length === 0) return [];
       const b = [];
-      for (const d of this.doors) {
-        try { if (d && !d.isOpen) b.push({ x: d.tileX, y: d.tileY }); } catch (e) {}
+      // 闭合的门阻挡视线
+      if (this.doors && this.doors.length > 0) {
+        for (const d of this.doors) {
+          try { if (d && !d.isOpen) b.push({ x: d.tileX, y: d.tileY }); } catch (e) {}
+        }
+      }
+      // 障碍物阻挡视线
+      if (this.obstacles && this.obstacles.length > 0) {
+        for (const o of this.obstacles) {
+          try { if (o && o.isAlive && o.blocksVision) b.push({ x: o.tileX, y: o.tileY }); } catch (e) {}
+        }
       }
       return b;
     } catch (e) { return []; }
@@ -862,6 +1246,135 @@ export default class GameScene extends Phaser.Scene {
       this.exitActive = true;
       this.updateExitVisual();
       this.events.emit('showMessage', '首领被击败了！通往出口的门显现为绿色。');
+    } catch (e) {}
+  }
+
+  // 检查是否进入战斗房并触发锁定
+  checkEnterCombatRoom() {
+    try {
+      if (this.combatRoomLocked || this.bossRoomLocked) return; // 已在战斗中
+      if (!this.mapData || !this.mapData.rooms) return;
+      
+      const px = this.player.tileX, py = this.player.tileY;
+      
+      // 查找玩家所在的战斗房或危险房（未清理）
+      for (const room of this.mapData.rooms) {
+        if (room.type !== 'combat' && room.type !== 'danger') continue;
+        if (room.cleared) continue; // 已清理过
+        
+        const inside = (px >= room.x && px < room.x + room.width && py >= room.y && py < room.y + room.height);
+        if (inside) {
+          this.lockCombatRoom(room);
+          break;
+        }
+      }
+    } catch (e) {}
+  }
+  
+  // 锁定战斗房
+  lockCombatRoom(room) {
+    try {
+      this.currentCombatRoom = room;
+      this.combatRoomLocked = true;
+      
+      // 查找房间内的敌人数量
+      const roomEnemies = this.enemies.filter(e => 
+        e.isAlive && e.room === room
+      );
+      
+      // 创建或关闭房间入口的门
+      const doorPositions = this.findRoomEntrances(room);
+      for (const dp of doorPositions) {
+        // 检查是否已有门
+        let existingDoor = this.doors.find(d => d.tileX === dp.x && d.tileY === dp.y);
+        if (!existingDoor) {
+          existingDoor = new Door(this, dp.x, dp.y, 20);
+          this.doors.push(existingDoor);
+        }
+        existingDoor.locked = true;
+        try { existingDoor.close(); } catch (e) {}
+      }
+      
+      // 显示结界视觉
+      const g = this.add.graphics();
+      g.lineStyle(2, room.type === 'danger' ? 0xff4444 : 0xffaa44, 0.8);
+      g.fillStyle(room.type === 'danger' ? 0xff0000 : 0xff6600, 0.08);
+      const cx = room.centerX * TILE_SIZE + TILE_SIZE / 2;
+      const cy = room.centerY * TILE_SIZE + TILE_SIZE / 2;
+      const radius = Math.max(room.width, room.height) * TILE_SIZE / 1.8;
+      g.fillCircle(cx, cy, radius);
+      g.strokeCircle(cx, cy, radius);
+      g.setDepth(29);
+      this._combatBarrierGraphic = g;
+      
+      const roomName = room.type === 'danger' ? '危险房间' : '战斗房间';
+      this.events.emit('showMessage', `进入${roomName}！消灭所有敌人后才能离开。（敌人数：${roomEnemies.length}）`);
+    } catch (e) {}
+  }
+  
+  // 检查战斗房是否已清理完毕
+  checkCombatRoomCleared() {
+    try {
+      if (!this.combatRoomLocked || !this.currentCombatRoom) return;
+      
+      const room = this.currentCombatRoom;
+      const remainingEnemies = this.enemies.filter(e => 
+        e.isAlive && e.room === room
+      );
+      
+      if (remainingEnemies.length === 0) {
+        this.unlockCombatRoom();
+      }
+    } catch (e) {}
+  }
+  
+  // 解锁战斗房
+  unlockCombatRoom() {
+    try {
+      if (!this.currentCombatRoom) return;
+      
+      const room = this.currentCombatRoom;
+      room.cleared = true;
+      
+      // 解锁并打开房间的门
+      const doorPositions = this.findRoomEntrances(room);
+      for (const dp of doorPositions) {
+        const door = this.doors.find(d => d.tileX === dp.x && d.tileY === dp.y);
+        if (door) {
+          door.locked = false;
+          try { door.open(); } catch (e) {}
+        }
+      }
+      
+      // 移除结界视觉
+      try {
+        if (this._combatBarrierGraphic) {
+          this._combatBarrierGraphic.destroy();
+          this._combatBarrierGraphic = null;
+        }
+      } catch (e) {}
+      
+      // 危险房间掉落额外奖励
+      if (room.type === 'danger') {
+        try {
+          const dropCount = this.mapManager.randomRange(2, 4);
+          for (let i = 0; i < dropCount; i++) {
+            const rx = this.mapManager.randomRange(room.x + 1, room.x + room.width - 2);
+            const ry = this.mapManager.randomRange(room.y + 1, room.y + room.height - 2);
+            if (!this.mapManager.isWalkable(rx, ry)) continue;
+            // 危险房掉落更好的东西，包括天赋书
+            const roll = Math.random();
+            const itemId = roll < 0.25 ? 'talent_book' : (roll < 0.5 ? 'potion_small' : (roll < 0.75 ? 'gold_coin' : 'herb'));
+            this.itemSystem.spawnItem(rx, ry, itemId);
+          }
+          this.events.emit('showMessage', '危险房间已清理！获得了丰厚的奖励！');
+        } catch (e) {}
+      } else {
+        this.events.emit('showMessage', '战斗房间已清理，门已解锁。');
+      }
+      
+      this.currentCombatRoom = null;
+      this.combatRoomLocked = false;
     } catch (e) {}
   }
 
@@ -922,6 +1435,12 @@ export default class GameScene extends Phaser.Scene {
     this.actionQueue.endAction(this.player);
     // 每当玩家回合结束，处理结界的持续效果（按回合计时、对范围内敌人造成伤害）
     if (this.processBarriers) this.processBarriers();
+    // 天赋系统回合结束效果（如生命回复）
+    if (this.talentSystem) this.talentSystem.onTurnEnd();
+    // 装备系统回合结束效果（生命/灵力回复）
+    if (this.equipmentSystem) this.equipmentSystem.onTurnEnd();
+    // 神社诅咒 debuff 处理
+    if (this.shrineDonateSystem) this.shrineDonateSystem.onTurnEnd();
     this.updateUI();
   }
 
@@ -997,7 +1516,39 @@ export default class GameScene extends Phaser.Scene {
         if (insideNow && !targetInside) return false;
       }
     } catch (e) {}
+    // 若处于战斗房锁定中，禁止从房间内移动到外侧
+    try {
+      if (this.combatRoomLocked && this.currentCombatRoom && this.player) {
+        const r = this.currentCombatRoom;
+        const px = this.player.tileX, py = this.player.tileY;
+        const insideNow = (px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height);
+        const targetInside = (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+        if (insideNow && !targetInside) return false;
+      }
+    } catch (e) {}
+    // 障碍物阻挡移动
+    try {
+      const obstacle = this.getObstacleAt(x, y);
+      if (obstacle && obstacle.isAlive && obstacle.blocksMovement) return false;
+    } catch (e) {}
     return true;
+  }
+  
+  /**
+   * 检查陷阱触发
+   */
+  checkTraps(entity) {
+    if (!this.traps || !entity) return;
+    for (const trap of this.traps) {
+      trap.checkTrigger(entity);
+    }
+  }
+  
+  /**
+   * 获取指定位置的障碍物
+   */
+  getObstacleAt(x, y) {
+    return this.obstacles?.find(o => o.tileX === x && o.tileY === y && o.isAlive);
   }
 
   /**
@@ -1026,6 +1577,16 @@ export default class GameScene extends Phaser.Scene {
     if (index !== -1) {
       this.enemies.splice(index, 1);
     }
+    // 天赋击杀效果（如吸血恢复）
+    if (this.talentSystem) {
+      try { this.talentSystem.onKillEnemy(); } catch (e) {}
+    }
+    // 装备击杀效果（如吸血恢复）
+    if (this.equipmentSystem) {
+      try { this.equipmentSystem.onKillEnemy(); } catch (e) {}
+    }
+    // 检查战斗房是否已清理
+    try { this.checkCombatRoomCleared(); } catch (e) {}
   }
 
   /**

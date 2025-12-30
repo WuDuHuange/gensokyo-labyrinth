@@ -23,8 +23,9 @@ class Room {
     this.height = height;
     this.centerX = Math.floor(x + width / 2);
     this.centerY = Math.floor(y + height / 2);
-    this.type = 'normal'; // normal, spawn, boss, exit
+    this.type = 'normal'; // normal, spawn, boss, exit, resource, combat, danger
     this.connected = false;
+    this.cleared = false; // 是否已清理（战斗房专用）
   }
 
   intersects(other) {
@@ -289,6 +290,22 @@ export default class MapGenerator {
       const idx = this.randomRange(0, candidates.length - 1);
       const resRoom = candidates[idx];
       resRoom.type = 'resource';
+    }
+
+    // 从剩余普通房间中选择部分作为战斗房（combat）- 进入后需清怪才能离开
+    const normalRooms = this.rooms.filter(r => r.type === 'normal');
+    const combatCount = Math.min(Math.floor(normalRooms.length * 0.4), 3); // 40% 或最多 3 个战斗房
+    for (let i = 0; i < combatCount && normalRooms.length > 0; i++) {
+      const idx = this.randomRange(0, normalRooms.length - 1);
+      const combatRoom = normalRooms.splice(idx, 1)[0];
+      combatRoom.type = 'combat';
+    }
+
+    // 从剩余普通房间中选择一个作为危险房（danger）- 敌人更强但掉落更好
+    const remainingNormal = this.rooms.filter(r => r.type === 'normal');
+    if (remainingNormal.length > 0) {
+      const dangerIdx = this.randomRange(0, remainingNormal.length - 1);
+      remainingNormal[dangerIdx].type = 'danger';
     }
   }
 

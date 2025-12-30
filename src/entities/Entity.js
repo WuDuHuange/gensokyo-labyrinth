@@ -3,19 +3,34 @@
  * 所有游戏对象的基类
  */
 import { TILE_SIZE } from '../config/gameConfig.js';
+import { SPRITE_CONFIG, getSpriteScale, getSpriteConfig } from '../config/spriteConfig.js';
 
 export default class Entity {
   constructor(scene, x, y, texture, config = {}) {
     this.scene = scene;
     this.tileX = x;
     this.tileY = y;
+    this.textureName = texture;
+    
+    // 获取精灵配置
+    const spriteConfig = getSpriteConfig(texture);
+    const scale = SPRITE_CONFIG.useCustomSprite ? getSpriteScale(texture) : 1;
+    
+    // 计算精灵位置（考虑原点偏移）
+    const baseX = x * TILE_SIZE + TILE_SIZE / 2;
+    const baseY = y * TILE_SIZE + TILE_SIZE / 2 + (spriteConfig.offsetY || 0);
     
     // 创建精灵
-    this.sprite = scene.add.sprite(
-      x * TILE_SIZE + TILE_SIZE / 2,
-      y * TILE_SIZE + TILE_SIZE / 2,
-      texture
-    );
+    this.sprite = scene.add.sprite(baseX, baseY, texture);
+    
+    // 应用自定义精灵配置
+    if (SPRITE_CONFIG.useCustomSprite) {
+      this.sprite.setScale(scale);
+      this.sprite.setOrigin(spriteConfig.originX, spriteConfig.originY);
+    }
+    
+    // 保存偏移量用于移动计算
+    this.spriteOffsetY = spriteConfig.offsetY || 0;
     
     // 基础属性
     this.name = config.name || 'Entity';
@@ -46,7 +61,7 @@ export default class Entity {
       this.tileY = tileY;
       
       const targetX = tileX * TILE_SIZE + TILE_SIZE / 2;
-      const targetY = tileY * TILE_SIZE + TILE_SIZE / 2;
+      const targetY = tileY * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY;
       
       if (animate) {
         // 玩家移动稍慢一点，敌人移动更快

@@ -64,6 +64,9 @@ export default class DemoBoss extends Enemy {
       // 阶段转换特效
       await this.phaseTransitionEffect();
       
+      // 通知 UI 更新阶段显示
+      this.scene.events.emit('bossPhaseChange', { phase: newPhase, shieldActive: this.shieldActive });
+      
       // 阶段2：开启护盾机制
       if (newPhase === 2) {
         this.scene.events.emit('showMessage', '水晶核心进入第二阶段！能量护盾启动！');
@@ -131,6 +134,9 @@ export default class DemoBoss extends Enemy {
     this.shieldDuration = 3;
     this.shieldCooldown = 6;
     
+    // 通知 UI 更新
+    this.scene.events.emit('bossPhaseChange', { phase: this.phase, shieldActive: true });
+    
     // 护盾视觉
     this.shieldGraphic = this.scene.add.circle(
       this.sprite.x, this.sprite.y, 24, 0x66ffff, 0.3
@@ -159,6 +165,9 @@ export default class DemoBoss extends Enemy {
       this.shieldGraphic.destroy();
       this.shieldGraphic = null;
     }
+    
+    // 通知 UI 更新
+    this.scene.events.emit('bossPhaseChange', { phase: this.phase, shieldActive: false });
   }
 
   /**

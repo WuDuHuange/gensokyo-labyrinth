@@ -1207,6 +1207,10 @@ export default class GameScene extends Phaser.Scene {
       const inside = (px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height);
       if (inside && !this.bossRoomLocked) {
         this.bossRoomLocked = true;
+        
+        // 触发 Boss UI 显示
+        this.events.emit('bossEncounter', this.bossEntity);
+        
         // 将房间所有门标记为 locked
         for (const d of this.doors) {
           try {
@@ -1236,6 +1240,9 @@ export default class GameScene extends Phaser.Scene {
   // boss 被击败时的回调
   onBossDefeated(boss) {
     try {
+      // 触发 Boss UI 隐藏
+      this.events.emit('bossDefeated');
+      
       this.bossEntity = null;
       this.bossRoomLocked = false;
       // 解锁房间门

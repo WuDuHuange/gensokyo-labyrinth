@@ -1,13 +1,20 @@
 /**
  * UI场景 - 显示游戏HUD
+ * 重构版：支持装备、天赋、金币、Boss阶段等新系统显示
  */
-import { PLAYER_CONFIG } from '../config/gameConfig.js';
+import { PLAYER_CONFIG, ITEM_CONFIG } from '../config/gameConfig.js';
 import { TileType } from '../systems/MapGenerator.js';
+import { EQUIPMENT_CONFIG } from '../systems/EquipmentSystem.js';
+import { TALENT_CONFIG } from '../systems/TalentSystem.js';
 
 export default class UIScene extends Phaser.Scene {
   constructor() {
     super({ key: 'UIScene' });
     this.playerStats = null;
+    // Boss UI 相关
+    this.bossHealthBar = null;
+    this.bossPhaseText = null;
+    this.currentBoss = null;
   }
 
   create() {
@@ -28,76 +35,122 @@ export default class UIScene extends Phaser.Scene {
     gameScene.events.on('showDamage', (data) => {
       this.showDamageNumber(data);
     });
+    
     // 打开符卡切换菜单的事件（由 MenuScene 或其他触发）
     gameScene.events.on('openSpellMenu', () => {
       this.openSpellMenuOverlay();
+    });
+    
+    // Boss 战事件
+    gameScene.events.on('bossEncounter', (boss) => {
+      this.showBossUI(boss);
+    });
+    
+    gameScene.events.on('bossDefeated', () => {
+      this.hideBossUI();
+    });
+    
+    gameScene.events.on('bossPhaseChange', (data) => {
+      this.updateBossPhase(data);
     });
   }
 
   createHUD() {
     const padding = 10;
+    const panelWidth = 220;
+    const panelHeight = 180;
     
-    // 背景面板
-    const hudBg = this.add.graphics();
-    hudBg.fillStyle(0x000000, 0.7);
-    hudBg.fillRoundedRect(padding, padding, 200, 120, 8);
+    // 主背景面板（扩大以容纳更多信息）
+    this.hudBg = this.add.graphics();
+    this.hudBg.fillStyle(0x0a0a12, 0.85);
+    this.hudBg.fillRoundedRect(padding, padding, panelWidth, panelHeight, 10);
+    this.hudBg.lineStyle(2, 0x4a4a6a, 0.6);
+    this.hudBg.strokeRoundedRect(padding, padding, panelWidth, panelHeight, 10);
 
-    // 角色名
-    this.add.text(padding + 10, padding + 10, '博丽灵梦', {
-      fontSize: '16px',
+    // 角色名 + 层数
+    this.add.text(padding + 12, padding + 10, '博丽灵梦', {
+      fontSize: '15px',
       fontFamily: 'Arial',
+      fontStyle: 'bold',
       color: '#e94560'
     });
+    
+    this.floorText = this.add.text(padding + panelWidth - 12, padding + 10, '1F', {
+      fontSize: '14px',
+      fontFamily: 'Arial',
+      color: '#88aaff'
+    }).setOrigin(1, 0);
 
-    // HP条背景
+    // HP条背景 + 装饰
+    const hpBarY = padding + 32;
     this.add.graphics()
-      .fillStyle(0x333333)
-      .fillRect(padding + 10, padding + 35, 180, 16);
+      .fillStyle(0x1a1a2a)
+      .fillRoundedRect(padding + 12, hpBarY, panelWidth - 24, 18, 4);
 
     // HP条
     this.hpBar = this.add.graphics();
+    this.hpBarWidth = panelWidth - 28;
+    this.hpBarX = padding + 14;
+    this.hpBarY = hpBarY + 2;
     this.updateHPBar(PLAYER_CONFIG.maxHp, PLAYER_CONFIG.maxHp);
 
-    // HP文字
-    this.hpText = this.add.text(padding + 100, padding + 37, `${PLAYER_CONFIG.maxHp}/${PLAYER_CONFIG.maxHp}`, {
-      fontSize: '12px',
+    // HP图标和文字
+    this.add.text(padding + 16, hpBarY + 2, '♥', { fontSize: '12px', color: '#ff6b6b' });
+    this.hpText = this.add.text(padding + panelWidth / 2, hpBarY + 3, `${PLAYER_CONFIG.maxHp}/${PLAYER_CONFIG.maxHp}`, {
+      fontSize: '11px',
       fontFamily: 'Arial',
       color: '#ffffff'
     }).setOrigin(0.5, 0);
 
     // MP条背景
+    const mpBarY = padding + 54;
     this.add.graphics()
-      .fillStyle(0x333333)
-      .fillRect(padding + 10, padding + 58, 180, 16);
+      .fillStyle(0x1a1a2a)
+      .fillRoundedRect(padding + 12, mpBarY, panelWidth - 24, 18, 4);
 
     // MP条
     this.mpBar = this.add.graphics();
+    this.mpBarWidth = panelWidth - 28;
+    this.mpBarX = padding + 14;
+    this.mpBarY = mpBarY + 2;
     this.updateMPBar(PLAYER_CONFIG.maxMp, PLAYER_CONFIG.maxMp);
 
-    // MP文字
-    this.mpText = this.add.text(padding + 100, padding + 60, `${PLAYER_CONFIG.maxMp}/${PLAYER_CONFIG.maxMp}`, {
-      fontSize: '12px',
+    // MP图标和文字
+    this.add.text(padding + 16, mpBarY + 2, '✦', { fontSize: '11px', color: '#6b9fff' });
+    this.mpText = this.add.text(padding + panelWidth / 2, mpBarY + 3, `${PLAYER_CONFIG.maxMp}/${PLAYER_CONFIG.maxMp}`, {
+      fontSize: '11px',
       fontFamily: 'Arial',
       color: '#ffffff'
     }).setOrigin(0.5, 0);
 
-    // 层数显示
-    this.floorText = this.add.text(padding + 10, padding + 85, '迷宫 1层', {
-      fontSize: '14px',
+    // 分隔线
+    this.add.graphics()
+      .lineStyle(1, 0x4a4a6a, 0.4)
+      .lineBetween(padding + 12, padding + 78, padding + panelWidth - 12, padding + 78);
+
+    // 金币显示
+    this.goldText = this.add.text(padding + 16, padding + 84, '💰 0', {
+      fontSize: '13px',
       fontFamily: 'Arial',
-      color: '#ffffff'
+      color: '#ffd700'
     });
 
     // 回合数显示
-    this.turnText = this.add.text(padding + 120, padding + 85, '回合: 0', {
-      fontSize: '14px',
-      fontFamily: 'Arial',
-      color: '#aaaaaa'
-    });
-
-    // 地面物品提示（当玩家周围或当前位置有物品时显示）
-    this.groundItemText = this.add.text(padding + 10, padding + 105, '', {
+    this.turnText = this.add.text(padding + panelWidth - 16, padding + 84, '回合 0', {
       fontSize: '12px',
+      fontFamily: 'Arial',
+      color: '#888899'
+    }).setOrigin(1, 0);
+
+    // 装备槽区域（2个饰品槽）
+    this.createEquipmentSlots(padding + 12, padding + 106, panelWidth - 24);
+
+    // 天赋图标栏
+    this.createTalentBar(padding + 12, padding + 148, panelWidth - 24);
+
+    // 地面物品提示（移到面板下方）
+    this.groundItemText = this.add.text(padding + 12, padding + panelHeight + 8, '', {
+      fontSize: '11px',
       fontFamily: 'Arial',
       color: '#fff2b0'
     });
@@ -110,26 +163,412 @@ export default class UIScene extends Phaser.Scene {
 
     // 消息日志（底部）
     this.createMessageLog();
+    
+    // Boss 血条（初始隐藏）
+    this.createBossUI();
+  }
+  
+  /**
+   * 创建装备槽显示
+   */
+  createEquipmentSlots(x, y, width) {
+    const slotSize = 32;
+    const gap = 8;
+    
+    // 装备槽标题
+    this.add.text(x, y, '装备', {
+      fontSize: '10px',
+      fontFamily: 'Arial',
+      color: '#888899'
+    });
+    
+    // 两个饰品槽
+    this.equipSlots = [];
+    this.equipSlotIcons = [];
+    this.equipSlotTooltips = [];
+    
+    for (let i = 0; i < 2; i++) {
+      const slotX = x + 40 + i * (slotSize + gap);
+      const slotY = y - 2;
+      
+      // 槽位背景
+      const slot = this.add.graphics();
+      slot.fillStyle(0x1a1a2a, 1);
+      slot.fillRoundedRect(slotX, slotY, slotSize, slotSize, 4);
+      slot.lineStyle(1, 0x4a4a6a, 0.8);
+      slot.strokeRoundedRect(slotX, slotY, slotSize, slotSize, 4);
+      this.equipSlots.push(slot);
+      
+      // 空槽位文字
+      const icon = this.add.text(slotX + slotSize / 2, slotY + slotSize / 2, i === 0 ? '饰' : '饰', {
+        fontSize: '12px',
+        fontFamily: 'Arial',
+        color: '#444455'
+      }).setOrigin(0.5);
+      this.equipSlotIcons.push(icon);
+    }
+  }
+  
+  /**
+   * 更新装备槽显示
+   */
+  updateEquipmentSlots() {
+    const gameScene = this.scene.get('GameScene');
+    if (!gameScene || !gameScene.equipmentSystem) return;
+    
+    const equipped = gameScene.equipmentSystem.equippedAccessories || [];
+    
+    for (let i = 0; i < 2; i++) {
+      const equip = equipped[i];
+      const icon = this.equipSlotIcons[i];
+      const slot = this.equipSlots[i];
+      
+      if (equip) {
+        const cfg = EQUIPMENT_CONFIG[equip];
+        if (cfg) {
+          // 根据稀有度设置颜色
+          let color = '#ffffff';
+          let borderColor = 0x4a4a6a;
+          if (cfg.rarity === 'rare') { color = '#6b9fff'; borderColor = 0x6b9fff; }
+          else if (cfg.rarity === 'epic') { color = '#bf6bff'; borderColor = 0xbf6bff; }
+          
+          icon.setText(cfg.name.charAt(0));
+          icon.setColor(color);
+          
+          // 更新边框
+          slot.clear();
+          slot.fillStyle(0x1a1a2a, 1);
+          slot.fillRoundedRect(slot.x || 0, slot.y || 0, 32, 32, 4);
+          slot.lineStyle(2, borderColor, 0.9);
+          slot.strokeRoundedRect(slot.x || 0, slot.y || 0, 32, 32, 4);
+        }
+      } else {
+        icon.setText('饰');
+        icon.setColor('#444455');
+      }
+    }
+  }
+  
+  /**
+   * 创建天赋图标栏
+   */
+  createTalentBar(x, y, width) {
+    // 天赋标题
+    this.add.text(x, y, '天赋', {
+      fontSize: '10px',
+      fontFamily: 'Arial',
+      color: '#888899'
+    });
+    
+    // 天赋图标容器
+    this.talentIcons = [];
+    this.talentContainer = this.add.container(x + 40, y - 2);
+    
+    // 初始显示空白
+    this.talentCountText = this.add.text(x + 40, y, '无', {
+      fontSize: '11px',
+      fontFamily: 'Arial',
+      color: '#555566'
+    });
+  }
+  
+  /**
+   * 更新天赋显示
+   */
+  updateTalentBar() {
+    const gameScene = this.scene.get('GameScene');
+    if (!gameScene || !gameScene.talentSystem) return;
+    
+    const talents = gameScene.talentSystem.acquiredTalents || [];
+    
+    // 清除旧图标
+    this.talentContainer.removeAll(true);
+    
+    if (talents.length === 0) {
+      this.talentCountText.setText('无');
+      this.talentCountText.setVisible(true);
+    } else {
+      this.talentCountText.setVisible(false);
+      
+      // 显示天赋图标（最多显示6个，多余的显示+N）
+      const maxShow = 6;
+      const iconSize = 20;
+      const gap = 4;
+      
+      for (let i = 0; i < Math.min(talents.length, maxShow); i++) {
+        const cfg = TALENT_CONFIG[talents[i]];
+        if (!cfg) continue;
+        
+        // 根据类型设置颜色
+        let color = '#ffffff';
+        if (cfg.type === 'attack') color = '#ff6b6b';
+        else if (cfg.type === 'defense') color = '#6bff6b';
+        else if (cfg.type === 'utility') color = '#6b9fff';
+        
+        const icon = this.add.text(i * (iconSize + gap), 0, cfg.name.charAt(0), {
+          fontSize: '11px',
+          fontFamily: 'Arial',
+          color: color,
+          backgroundColor: '#1a1a2a',
+          padding: { x: 4, y: 2 }
+        });
+        this.talentContainer.add(icon);
+      }
+      
+      // 如果有更多天赋
+      if (talents.length > maxShow) {
+        const moreText = this.add.text(maxShow * (iconSize + gap), 0, `+${talents.length - maxShow}`, {
+          fontSize: '10px',
+          fontFamily: 'Arial',
+          color: '#888899'
+        });
+        this.talentContainer.add(moreText);
+      }
+    }
+  }
+  
+  /**
+   * 创建 Boss 血条 UI（初始隐藏）
+   */
+  createBossUI() {
+    const width = this.cameras.main.width;
+    const bossBarWidth = 400;
+    const bossBarHeight = 24;
+    const bossBarX = (width - bossBarWidth) / 2;
+    const bossBarY = 20;
+    
+    // Boss UI 容器
+    this.bossUIContainer = this.add.container(0, 0);
+    this.bossUIContainer.setVisible(false);
+    
+    // 背景
+    const bossBg = this.add.graphics();
+    bossBg.fillStyle(0x0a0a12, 0.9);
+    bossBg.fillRoundedRect(bossBarX - 10, bossBarY - 30, bossBarWidth + 20, bossBarHeight + 50, 8);
+    bossBg.lineStyle(2, 0x8b4a8b, 0.8);
+    bossBg.strokeRoundedRect(bossBarX - 10, bossBarY - 30, bossBarWidth + 20, bossBarHeight + 50, 8);
+    this.bossUIContainer.add(bossBg);
+    
+    // Boss 名字
+    this.bossNameText = this.add.text(width / 2, bossBarY - 20, '', {
+      fontSize: '16px',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+      color: '#ff66ff'
+    }).setOrigin(0.5);
+    this.bossUIContainer.add(this.bossNameText);
+    
+    // 血条背景
+    const hpBg = this.add.graphics();
+    hpBg.fillStyle(0x1a1a2a);
+    hpBg.fillRoundedRect(bossBarX, bossBarY, bossBarWidth, bossBarHeight, 4);
+    this.bossUIContainer.add(hpBg);
+    
+    // 血条
+    this.bossHpBar = this.add.graphics();
+    this.bossHpBarX = bossBarX + 2;
+    this.bossHpBarY = bossBarY + 2;
+    this.bossHpBarWidth = bossBarWidth - 4;
+    this.bossHpBarHeight = bossBarHeight - 4;
+    this.bossUIContainer.add(this.bossHpBar);
+    
+    // 血量文字
+    this.bossHpText = this.add.text(width / 2, bossBarY + bossBarHeight / 2, '', {
+      fontSize: '12px',
+      fontFamily: 'Arial',
+      color: '#ffffff'
+    }).setOrigin(0.5);
+    this.bossUIContainer.add(this.bossHpText);
+    
+    // 阶段指示器
+    this.bossPhaseContainer = this.add.container(bossBarX, bossBarY + bossBarHeight + 8);
+    this.bossUIContainer.add(this.bossPhaseContainer);
+    
+    // 阶段状态文字
+    this.bossPhaseText = this.add.text(width / 2, bossBarY + bossBarHeight + 12, '', {
+      fontSize: '11px',
+      fontFamily: 'Arial',
+      color: '#ffaa66'
+    }).setOrigin(0.5);
+    this.bossUIContainer.add(this.bossPhaseText);
+  }
+  
+  /**
+   * 显示 Boss UI
+   */
+  showBossUI(boss) {
+    this.currentBoss = boss;
+    this.bossUIContainer.setVisible(true);
+    
+    this.bossNameText.setText(`◆ ${boss.name} ◆`);
+    this.updateBossHP(boss.hp, boss.maxHp);
+    this.updateBossPhase({ phase: boss.phase || 1, shieldActive: boss.shieldActive });
+    
+    // 入场动画
+    this.bossUIContainer.setAlpha(0);
+    this.tweens.add({
+      targets: this.bossUIContainer,
+      alpha: 1,
+      duration: 500,
+      ease: 'Power2'
+    });
+  }
+  
+  /**
+   * 隐藏 Boss UI
+   */
+  hideBossUI() {
+    this.tweens.add({
+      targets: this.bossUIContainer,
+      alpha: 0,
+      duration: 500,
+      ease: 'Power2',
+      onComplete: () => {
+        this.bossUIContainer.setVisible(false);
+        this.currentBoss = null;
+      }
+    });
+  }
+  
+  /**
+   * 更新 Boss 血条
+   */
+  updateBossHP(current, max) {
+    const percent = Math.max(0, current / max);
+    
+    // 根据血量决定颜色
+    let color = 0xbf6bff; // 紫色
+    if (percent <= 0.3) color = 0xff4444; // 红色（狂暴）
+    else if (percent <= 0.6) color = 0xff8844; // 橙色（阶段2）
+    
+    this.bossHpBar.clear();
+    this.bossHpBar.fillStyle(color, 1);
+    this.bossHpBar.fillRoundedRect(
+      this.bossHpBarX,
+      this.bossHpBarY,
+      this.bossHpBarWidth * percent,
+      this.bossHpBarHeight,
+      3
+    );
+    
+    this.bossHpText.setText(`${current}/${max}`);
+  }
+  
+  /**
+   * 更新 Boss 阶段显示
+   */
+  updateBossPhase(data) {
+    const { phase, shieldActive } = data;
+    
+    // 清除旧的阶段指示器
+    this.bossPhaseContainer.removeAll(true);
+    
+    // 创建阶段点
+    const phases = ['I', 'II', 'III'];
+    const dotSize = 24;
+    const gap = 8;
+    const startX = (400 - (phases.length * dotSize + (phases.length - 1) * gap)) / 2;
+    
+    for (let i = 0; i < phases.length; i++) {
+      const isActive = (i + 1) === phase;
+      const isPast = (i + 1) < phase;
+      
+      let bgColor = 0x1a1a2a;
+      let textColor = '#555566';
+      let borderColor = 0x3a3a4a;
+      
+      if (isActive) {
+        bgColor = 0x8b4a8b;
+        textColor = '#ffffff';
+        borderColor = 0xbf6bff;
+      } else if (isPast) {
+        bgColor = 0x4a2a4a;
+        textColor = '#888888';
+        borderColor = 0x6a4a6a;
+      }
+      
+      const dot = this.add.graphics();
+      dot.fillStyle(bgColor, 1);
+      dot.fillRoundedRect(startX + i * (dotSize + gap), 0, dotSize, dotSize, 4);
+      dot.lineStyle(2, borderColor, 0.9);
+      dot.strokeRoundedRect(startX + i * (dotSize + gap), 0, dotSize, dotSize, 4);
+      this.bossPhaseContainer.add(dot);
+      
+      const text = this.add.text(startX + i * (dotSize + gap) + dotSize / 2, dotSize / 2, phases[i], {
+        fontSize: '12px',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        color: textColor
+      }).setOrigin(0.5);
+      this.bossPhaseContainer.add(text);
+    }
+    
+    // 状态文字
+    let statusText = '';
+    if (phase === 1) statusText = '普通阶段';
+    else if (phase === 2) statusText = shieldActive ? '⚡ 护盾启动' : '强化阶段';
+    else if (phase === 3) statusText = '🔥 狂暴模式';
+    
+    this.bossPhaseText.setText(statusText);
   }
 
   createSpellCardUI() {
     const width = this.cameras.main.width;
     const padding = 10;
+    const panelWidth = 200;
+    const panelHeight = 115;
 
-    // 符卡面板背景
+    // 符卡面板背景（美化）
     const spellBg = this.add.graphics();
-    spellBg.fillStyle(0x000000, 0.7);
-    spellBg.fillRoundedRect(width - 210, padding, 200, 95, 8);
+    spellBg.fillStyle(0x0a0a12, 0.85);
+    spellBg.fillRoundedRect(width - panelWidth - padding, padding, panelWidth, panelHeight, 10);
+    spellBg.lineStyle(2, 0x4a4a6a, 0.6);
+    spellBg.strokeRoundedRect(width - panelWidth - padding, padding, panelWidth, panelHeight, 10);
+    
+    // 标题
+    this.add.text(width - panelWidth / 2 - padding, padding + 8, '符卡', {
+      fontSize: '12px',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+      color: '#bf6bff'
+    }).setOrigin(0.5);
 
-    // 快捷槽显示（Z/X/C）及对应符卡名/冷却显示（会在 updateSpellUI 刷新）
+    // 快捷槽显示（Z/X/C）及对应符卡名/冷却显示
     this.spellSlotTexts = [];
     this.spellSlotCd = [];
-    const slotX = width - 200;
-    const baseY = padding + 8;
+    this.spellSlotBgs = [];
+    const slotX = width - panelWidth + padding;
+    const baseY = padding + 28;
     const slotLabels = ['Z', 'X', 'C'];
+    const slotHeight = 26;
+    
     for (let i = 0; i < 3; i++) {
-      this.spellSlotTexts[i] = this.add.text(slotX, baseY + i * 28, `[${slotLabels[i]}] -`, { fontSize: '11px', fontFamily: 'Arial', color: '#ffffff' });
-      this.spellSlotCd[i] = this.add.text(slotX, baseY + 12 + i * 28, '', { fontSize: '9px', fontFamily: 'Arial', color: '#aaaaaa' });
+      // 槽位背景（用于显示冷却状态）
+      const bg = this.add.graphics();
+      bg.fillStyle(0x1a1a2a, 0.6);
+      bg.fillRoundedRect(slotX - 4, baseY + i * slotHeight - 2, panelWidth - 22, slotHeight - 4, 3);
+      this.spellSlotBgs.push(bg);
+      
+      // 快捷键标识
+      this.add.text(slotX, baseY + i * slotHeight, `[${slotLabels[i]}]`, {
+        fontSize: '10px',
+        fontFamily: 'Arial',
+        color: '#888899'
+      });
+      
+      // 符卡名
+      this.spellSlotTexts[i] = this.add.text(slotX + 28, baseY + i * slotHeight, '-', {
+        fontSize: '11px',
+        fontFamily: 'Arial',
+        color: '#ffffff'
+      });
+      
+      // 冷却/消耗
+      this.spellSlotCd[i] = this.add.text(width - padding - 16, baseY + i * slotHeight, '', {
+        fontSize: '10px',
+        fontFamily: 'Arial',
+        color: '#aaaaaa'
+      }).setOrigin(1, 0);
     }
 
     // 初始化显示
@@ -140,11 +579,23 @@ export default class UIScene extends Phaser.Scene {
     const game = this.scene.get('GameScene');
     if (!game || !game.spellCardSystem || !game.player) return;
     const status = game.spellCardSystem.getStatus();
+    
     for (let i = 0; i < 3; i++) {
       const mappedIndex = (game.player.quickSlots && game.player.quickSlots[i] !== undefined) ? game.player.quickSlots[i] : i;
       const s = status[mappedIndex] || { name: '未知', mpCost: 0, cooldown: 0, maxCooldown: 0 };
-      this.spellSlotTexts[i].setText(`[${['Z','X','C'][i]}] ${s.name}`);
-      this.spellSlotCd[i].setText(s.cooldown > 0 ? `CD:${s.cooldown}` : `MP:${s.mpCost}`);
+      
+      this.spellSlotTexts[i].setText(s.name);
+      
+      // 根据冷却状态设置颜色
+      if (s.cooldown > 0) {
+        this.spellSlotCd[i].setText(`${s.cooldown}回合`);
+        this.spellSlotCd[i].setColor('#ff6b6b');
+        this.spellSlotTexts[i].setColor('#666677');
+      } else {
+        this.spellSlotCd[i].setText(`${s.mpCost}MP`);
+        this.spellSlotCd[i].setColor('#6b9fff');
+        this.spellSlotTexts[i].setColor('#ffffff');
+      }
     }
   }
 
@@ -206,21 +657,23 @@ export default class UIScene extends Phaser.Scene {
     const minimapSize = 150;
     const padding = 10;
     
-    // 小地图位置
+    // 小地图位置（在符卡面板下方）
     this.minimapX = width - minimapSize - padding;
-    this.minimapY = 115;
+    this.minimapY = 140;
     this.minimapSize = minimapSize;
 
     // 小地图背景（保存为实例属性以便拖拽）
     this.minimapBg = this.add.graphics();
-    this.minimapBg.fillStyle(0x000000, 0.8);
-    this.minimapBg.fillRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 15, 8);
+    this.minimapBg.fillStyle(0x0a0a12, 0.85);
+    this.minimapBg.fillRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 20, 10);
+    this.minimapBg.lineStyle(2, 0x4a4a6a, 0.6);
+    this.minimapBg.strokeRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 20, 10);
 
     // 标题（保存引用以便更新位置）
-    this.minimapTitle = this.add.text(this.minimapX + minimapSize / 2, this.minimapY - 10, '小地图 [TAB查看]', {
-      fontSize: '9px',
+    this.minimapTitle = this.add.text(this.minimapX + minimapSize / 2, this.minimapY - 8, '小地图', {
+      fontSize: '10px',
       fontFamily: 'Arial',
-      color: '#888888'
+      color: '#888899'
     }).setOrigin(0.5, 0);
 
     // 小地图绘制图形
@@ -262,9 +715,11 @@ export default class UIScene extends Phaser.Scene {
 
         // 重新绘制背景与标题位置
         this.minimapBg.clear();
-        this.minimapBg.fillStyle(0x000000, 0.8);
-        this.minimapBg.fillRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 15, 8);
-        this.minimapTitle.setPosition(this.minimapX + minimapSize / 2, this.minimapY - 10);
+        this.minimapBg.fillStyle(0x0a0a12, 0.85);
+        this.minimapBg.fillRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 20, 10);
+        this.minimapBg.lineStyle(2, 0x4a4a6a, 0.6);
+        this.minimapBg.strokeRoundedRect(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 20, 10);
+        this.minimapTitle.setPosition(this.minimapX + minimapSize / 2, this.minimapY - 8);
 
         // 重新设置 interactive 区域（因为位置改变）
         try { this.minimapBg.input.hitArea.setTo(this.minimapX, this.minimapY - 15, minimapSize, minimapSize + 15); } catch (e) {}
@@ -476,16 +931,20 @@ export default class UIScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
     const padding = 10;
+    const logWidth = Math.min(600, width - padding * 2);
+    const logX = (width - logWidth) / 2;
 
-    // 消息日志背景
+    // 消息日志背景（居中，半透明）
     const logBg = this.add.graphics();
-    logBg.fillStyle(0x000000, 0.7);
-    logBg.fillRoundedRect(padding, height - 80, width - padding * 2, 70, 8);
+    logBg.fillStyle(0x0a0a12, 0.75);
+    logBg.fillRoundedRect(logX, height - 85, logWidth, 75, 10);
+    logBg.lineStyle(1, 0x4a4a6a, 0.4);
+    logBg.strokeRoundedRect(logX, height - 85, logWidth, 75, 10);
 
     // 消息文字容器
     this.messageTexts = [];
     for (let i = 0; i < 3; i++) {
-      const text = this.add.text(padding + 10, height - 70 + i * 20, '', {
+      const text = this.add.text(logX + 12, height - 75 + i * 22, '', {
         fontSize: '12px',
         fontFamily: 'Arial',
         color: '#cccccc'
@@ -498,14 +957,21 @@ export default class UIScene extends Phaser.Scene {
 
   updateHPBar(current, max) {
     this.hpBar.clear();
-    this.hpBar.fillStyle(0xe94560);
-    this.hpBar.fillRect(20, 45, 180 * (current / max), 16);
+    
+    // 根据血量百分比渐变颜色
+    const percent = current / max;
+    let color = 0xe94560; // 红色
+    if (percent > 0.6) color = 0x44cc66; // 绿色
+    else if (percent > 0.3) color = 0xffaa44; // 橙色
+    
+    this.hpBar.fillStyle(color);
+    this.hpBar.fillRoundedRect(this.hpBarX, this.hpBarY, this.hpBarWidth * percent, 14, 3);
   }
 
   updateMPBar(current, max) {
     this.mpBar.clear();
     this.mpBar.fillStyle(0x6b9fff);
-    this.mpBar.fillRect(20, 68, 180 * (current / max), 16);
+    this.mpBar.fillRoundedRect(this.mpBarX, this.mpBarY, this.mpBarWidth * (current / max), 14, 3);
   }
 
   updateStats(stats) {
@@ -519,12 +985,40 @@ export default class UIScene extends Phaser.Scene {
 
     // 更新层数
     if (stats.floor !== undefined) {
-      this.floorText.setText(`迷宫 ${stats.floor}层`);
+      this.floorText.setText(`${stats.floor}F`);
     }
 
     // 更新回合数
     if (stats.turn !== undefined) {
-      this.turnText.setText(`回合: ${stats.turn}`);
+      this.turnText.setText(`回合 ${stats.turn}`);
+    }
+    
+    // 更新金币（从 spellUpgradeSystem 获取）
+    const gameScene = this.scene.get('GameScene');
+    if (gameScene && gameScene.spellUpgradeSystem) {
+      const gold = gameScene.spellUpgradeSystem.gold || 0;
+      this.goldText.setText(`💰 ${gold}`);
+    }
+    
+    // 更新装备和天赋显示
+    this.updateEquipmentSlots();
+    this.updateTalentBar();
+    
+    // 更新符卡显示
+    this.updateSpellUI();
+    
+    // 更新 Boss 血条（如果有）
+    if (this.currentBoss && this.currentBoss.isAlive) {
+      this.updateBossHP(this.currentBoss.hp, this.currentBoss.maxHp);
+      if (this.currentBoss.phase !== this._lastBossPhase || 
+          this.currentBoss.shieldActive !== this._lastBossShield) {
+        this.updateBossPhase({ 
+          phase: this.currentBoss.phase, 
+          shieldActive: this.currentBoss.shieldActive 
+        });
+        this._lastBossPhase = this.currentBoss.phase;
+        this._lastBossShield = this.currentBoss.shieldActive;
+      }
     }
   }
 

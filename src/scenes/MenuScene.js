@@ -48,6 +48,20 @@ export default class MenuScene extends Phaser.Scene {
     const menuX = this.width / 2;
     const menuY = this.height / 2;
 
+    // 记录布局数据供更新/重绘使用
+    this.menuLayout = {
+      menuWidth,
+      menuHeight,
+      menuX,
+      menuY,
+      startY: menuY - menuHeight / 2 + 100,
+      itemHeight: 52,
+      itemBgWidth: 260,
+      itemBgHeight: 44,
+      itemBgOffsetX: 130,
+      itemBgOffsetY: 18
+    };
+
     // 主容器
     this.mainMenuContainer = this.add.container(0, 0);
 
@@ -86,8 +100,7 @@ export default class MenuScene extends Phaser.Scene {
       { text: '读档', key: 'F9', action: () => this.loadGame(), icon: '📂' }
     ];
 
-    const startY = menuY - menuHeight/2 + 100;
-    const itemHeight = 52;
+    const { startY, itemHeight, itemBgWidth, itemBgHeight, itemBgOffsetX, itemBgOffsetY } = this.menuLayout;
 
     for (let i = 0; i < options.length; i++) {
       const opt = options[i];
@@ -96,7 +109,7 @@ export default class MenuScene extends Phaser.Scene {
       // 选项背景
       const itemBg = this.add.graphics();
       itemBg.fillStyle(this.colors.bg, 0.6);
-      itemBg.fillRoundedRect(menuX - 130, y - 18, 260, 44, 8);
+      itemBg.fillRoundedRect(menuX - itemBgOffsetX, y - itemBgOffsetY, itemBgWidth, itemBgHeight, 8);
       this.mainMenuContainer.add(itemBg);
       
       // 图标
@@ -126,9 +139,13 @@ export default class MenuScene extends Phaser.Scene {
       const self = this;
       const idx = i;
       text.on('pointerover', function() { self.selectedIndex = idx; self.updateMenuSelection(); });
-      text.on('pointerdown', function() { opt.action(); });
+      text.on('pointerdown', function() { self.selectedIndex = idx; self.updateMenuSelection(); opt.action(); });
+      // 背景也可点击/选中，避免点击偏移
+      itemBg.setInteractive(new Phaser.Geom.Rectangle(menuX - itemBgOffsetX, y - itemBgOffsetY, itemBgWidth, itemBgHeight), Phaser.Geom.Rectangle.Contains);
+      itemBg.on('pointerover', function() { self.selectedIndex = idx; self.updateMenuSelection(); });
+      itemBg.on('pointerdown', function() { self.selectedIndex = idx; self.updateMenuSelection(); opt.action(); });
 
-      this.menuItems.push({ text, bg: itemBg, icon, keyHint });
+      this.menuItems.push({ text, bg: itemBg, icon, keyHint, y });
       this.menuActions.push(opt.action);
     }
 
@@ -180,9 +197,13 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   updateMenuSelection() {
+    const layout = this.menuLayout || { menuX: this.width / 2, itemBgWidth: 260, itemBgHeight: 44, itemBgOffsetX: 130, itemBgOffsetY: 18 };
+    const startY = layout.startY || (this.height / 2 - (layout.menuHeight || 480) / 2 + 100);
+    const itemHeight = layout.itemHeight || 52;
     for (let i = 0; i < this.menuItems.length; i++) {
       const item = this.menuItems[i];
       const isSelected = (i === this.selectedIndex);
+      const y = item.y || (startY + i * itemHeight);
       
       item.bg.clear();
       if (isSelected) {
@@ -191,9 +212,9 @@ export default class MenuScene extends Phaser.Scene {
       } else {
         item.bg.fillStyle(this.colors.bg, 0.6);
       }
-      item.bg.fillRoundedRect(this.width/2 - 130, this.height/2 - 240/2 + 100 + i * 52 - 18, 260, 44, 8);
+      item.bg.fillRoundedRect(layout.menuX - layout.itemBgOffsetX, y - layout.itemBgOffsetY, layout.itemBgWidth, layout.itemBgHeight, 8);
       if (isSelected) {
-        item.bg.strokeRoundedRect(this.width/2 - 130, this.height/2 - 240/2 + 100 + i * 52 - 18, 260, 44, 8);
+        item.bg.strokeRoundedRect(layout.menuX - layout.itemBgOffsetX, y - layout.itemBgOffsetY, layout.itemBgWidth, layout.itemBgHeight, 8);
       }
       
       try {

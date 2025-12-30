@@ -886,7 +886,9 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, worldWidth, worldHeight);
     
     // 跟随玩家
-    this.cameras.main.startFollow(this.player.sprite, true, 0.1, 0.1);
+    this.cameras.main.startFollow(this.player.sprite, true, 1, 1); // 取消平滑插值，避免初始缓慢放大感
+    this.cameras.main.setLerp(1, 1);
+    this.cameras.main.roundPixels = true;
     
     // 设置缩放
     this.cameras.main.setZoom(1);
@@ -1717,7 +1719,9 @@ export default class GameScene extends Phaser.Scene {
     this.time.delayedCall(1500, () => {
       this.cameras.main.fadeOut(1000, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => {
-        this.scene.stop('UIScene');
+        try { this.scene.stop('UIScene'); } catch (e) {}
+        // 停止当前游戏场景再返回主菜单，确保可以重新开始
+        try { this.scene.stop(); } catch (e) {}
         this.scene.start('MenuScene');
       });
     });
@@ -1735,7 +1739,8 @@ export default class GameScene extends Phaser.Scene {
     this.time.delayedCall(1500, () => {
       this.cameras.main.fadeOut(1000, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => {
-        this.scene.stop('UIScene');
+        try { this.scene.stop('UIScene'); } catch (e) {}
+        try { this.scene.stop(); } catch (e) {}
         this.scene.start('MenuScene');
       });
     });

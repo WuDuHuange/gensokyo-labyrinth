@@ -126,8 +126,8 @@ export const ACTION_CONFIG = {
 export const GAME_CONFIG = {
   type: Phaser.AUTO,
   parent: 'game-container',
-  width: 800,
-  height: 600,
+  width: 1280,
+  height: 720,
   pixelArt: true,
   backgroundColor: '#1a1a2e',
   physics: {

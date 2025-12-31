@@ -1223,6 +1223,12 @@ export default class GameScene extends Phaser.Scene {
       try { this.checkEnterCombatRoom(); } catch (e) {}
       // 检查陷阱触发
       try { this.checkTraps(this.player); } catch (e) {}
+      // 若陷阱致死，立即触发失败流程
+      if (!this.player.isAlive) {
+        this.gameOver();
+        this.isProcessingTurn = false;
+        return;
+      }
       // 检查神社交互
       try {
         const shrine = this.getShrineAt(this.player.tileX, this.player.tileY);

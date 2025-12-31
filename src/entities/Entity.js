@@ -13,24 +13,26 @@ export default class Entity {
     this.textureName = texture;
     
     // 获取精灵配置
+    const useCustomSprite = SPRITE_CONFIG.useCustomSprite;
     const spriteConfig = getSpriteConfig(texture);
-    const scale = SPRITE_CONFIG.useCustomSprite ? getSpriteScale(texture) : 1;
+    const scale = useCustomSprite ? getSpriteScale(texture) : 1;
+    const offsetY = useCustomSprite ? (spriteConfig.offsetY || 0) : 0;
     
     // 计算精灵位置（考虑原点偏移）
     const baseX = x * TILE_SIZE + TILE_SIZE / 2;
-    const baseY = y * TILE_SIZE + TILE_SIZE / 2 + (spriteConfig.offsetY || 0);
+    const baseY = y * TILE_SIZE + TILE_SIZE / 2 + offsetY;
     
     // 创建精灵
     this.sprite = scene.add.sprite(baseX, baseY, texture);
     
     // 应用自定义精灵配置
-    if (SPRITE_CONFIG.useCustomSprite) {
+    if (useCustomSprite) {
       this.sprite.setScale(scale);
       this.sprite.setOrigin(spriteConfig.originX, spriteConfig.originY);
     }
     
     // 保存偏移量用于移动计算
-    this.spriteOffsetY = spriteConfig.offsetY || 0;
+    this.spriteOffsetY = offsetY;
     
     // 基础属性
     this.name = config.name || 'Entity';

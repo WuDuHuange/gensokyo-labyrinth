@@ -15,6 +15,9 @@ export default class DemoBoss extends Enemy {
       attackRange: 0
     });
 
+    // 标记为Boss
+    this.isBoss = true;
+
     // 技能冷却
     this.burstCd = 0;      // 弹幕射击
     this.summonCd = 5;     // 召唤小晶体

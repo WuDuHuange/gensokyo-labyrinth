@@ -68,7 +68,13 @@ export default class ShieldFairy extends Enemy {
           this.shieldGraphic.destroy();
           this.shieldGraphic = null;
         }
-        this.scene.events.emit('showMessage', `${this.name}的护盾消失了！`);
+        // 只有在玩家可见范围内才显示消息，避免刷屏
+        try {
+          const fog = this.scene.fog;
+          if (fog && fog.isVisible(this.tileX, this.tileY)) {
+            this.scene.events.emit('showMessage', `${this.name}的护盾消失了！`);
+          }
+        } catch (e) {}
       }
     } else {
       this.shieldCooldown--;
@@ -76,7 +82,13 @@ export default class ShieldFairy extends Enemy {
         this.shieldActive = true;
         this.shieldTimer = this.shieldDuration;
         this.createShieldVisual();
-        this.scene.events.emit('showMessage', `${this.name}重新展开了护盾！`);
+        // 只有在玩家可见范围内才显示消息
+        try {
+          const fog = this.scene.fog;
+          if (fog && fog.isVisible(this.tileX, this.tileY)) {
+            this.scene.events.emit('showMessage', `${this.name}重新展开了护盾！`);
+          }
+        } catch (e) {}
       }
     }
     

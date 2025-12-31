@@ -489,6 +489,9 @@ export default class GameScene extends Phaser.Scene {
    * 显示神社捐赠菜单
    */
   showShrineDonateMenu(shrine) {
+    // 标记神社菜单正在显示，避免ESC冲突
+    this._shrineMenuActive = true;
+    
     const options = this.shrineDonateSystem.getDonationOptions();
     const gold = this.spellUpgradeSystem?.gold || 0;
     
@@ -533,26 +536,29 @@ export default class GameScene extends Phaser.Scene {
       optionTexts.push(text);
     });
     
-    const cancelText = this.add.text(menuX + 20, menuY + menuHeight - 30, 'ESC. 离开', {
+    const cancelText = this.add.text(menuX + 20, menuY + menuHeight - 30, 'X. 离开', {
       fontSize: '14px',
       fontFamily: 'Arial',
       color: '#aaaaaa'
     }).setScrollFactor(0).setDepth(1001);
     
     // 处理输入
+    const self = this;
     const cleanup = () => {
+      self._shrineMenuActive = false; // 清除神社菜单标记
       menuBg.destroy();
       title.destroy();
       goldText.destroy();
       optionTexts.forEach(t => t.destroy());
       cancelText.destroy();
-      this.input.keyboard.off('keydown', handleKey);
+      self.input.keyboard.off('keydown', handleKey);
     };
     
     const handleKey = (event) => {
-      const key = event.key;
+      const key = event.key.toLowerCase();
       
-      if (key === 'Escape') {
+      // 使用X键关闭而不是ESC，避免与游戏菜单冲突
+      if (key === 'x' || key === 'escape') {
         cleanup();
         return;
       }
@@ -778,6 +784,54 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     } catch (e) {}
+    
+    // 障碍物：仅在可见或已探索时显示
+    try {
+      if (this.obstacles && this.obstacles.length) {
+        for (const o of this.obstacles) {
+          try {
+            const tx = o.tileX, ty = o.tileY;
+            const isVis = visible && visible[ty] ? !!visible[ty][tx] : false;
+            const isExp = explored && explored[ty] ? !!explored[ty][tx] : false;
+            if (o.sprite) {
+              o.sprite.setVisible((isVis || isExp) && o.isAlive);
+              o.sprite.setAlpha(isVis ? 1 : 0.3);
+            }
+          } catch (ex) {}
+        }
+      }
+    } catch (e) {}
+    
+    // 陷阱：仅在可见时显示
+    try {
+      if (this.traps && this.traps.length) {
+        for (const t of this.traps) {
+          try {
+            const tx = t.tileX, ty = t.tileY;
+            const isVis = visible && visible[ty] ? !!visible[ty][tx] : false;
+            if (t.setVisible) t.setVisible(isVis);
+            else if (t.sprite) t.sprite.setVisible(isVis);
+          } catch (ex) {}
+        }
+      }
+    } catch (e) {}
+    
+    // 神社：仅在可见或已探索时显示
+    try {
+      if (this.shrines && this.shrines.length) {
+        for (const s of this.shrines) {
+          try {
+            const tx = s.tileX, ty = s.tileY;
+            const isVis = visible && visible[ty] ? !!visible[ty][tx] : false;
+            const isExp = explored && explored[ty] ? !!explored[ty][tx] : false;
+            if (s.sprite) {
+              s.sprite.setVisible(isVis || isExp);
+              s.sprite.setAlpha(isVis ? 1 : 0.4);
+            }
+          } catch (ex) {}
+        }
+      }
+    } catch (e) {}
 
     // 玩家自己始终可见
     if (this.player && this.player.sprite) {
@@ -938,6 +992,9 @@ export default class GameScene extends Phaser.Scene {
     
     // 处理自由视角模式
     if (this.handleFreeLookMode()) return;
+    
+    // 如果正在显示神社菜单，不处理菜单键
+    if (this._shrineMenuActive) return;
 
     // 菜单开关（Esc）
     if (Phaser.Input.Keyboard.JustDown(this.menuKey)) {
@@ -1126,8 +1183,8 @@ export default class GameScene extends Phaser.Scene {
       if (this.player.useSpellCard(2)) acted = true;
     }
     
-    // 等待
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+    // 等待（支持按住空格连续跳过回合）
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) || this.spaceKey.isDown) {
       this.player.wait();
       acted = true;
       this.heldMove = null;

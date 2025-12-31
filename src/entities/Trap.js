@@ -170,6 +170,18 @@ export class TeleportTrap {
         const hasObstacle = this.scene.obstacles?.some(o => o.tileX === x && o.tileY === y && o.isAlive);
         if (hasObstacle) continue;
         
+        // 确保目标位置四周至少有一个可通行的格子（避免传送到死路）
+        let hasExit = false;
+        const dirs = [{dx:0,dy:-1},{dx:0,dy:1},{dx:-1,dy:0},{dx:1,dy:0}];
+        for (const dir of dirs) {
+          const nx = x + dir.dx, ny = y + dir.dy;
+          if (this.scene.mapManager.isWalkable(nx, ny)) {
+            hasExit = true;
+            break;
+          }
+        }
+        if (!hasExit) continue;
+        
         validPositions.push({ x, y });
       }
     }

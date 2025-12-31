@@ -130,6 +130,11 @@ export default class Player extends Entity {
       try {
         const door = this.scene.getDoorAt(newX, newY);
         if (door && !door.isOpen) {
+          // 如果门是锁定的，不消耗行动
+          if (door.locked) {
+            this.scene.events.emit('showMessage', '这扇门被锁住了！');
+            return false; // 不消耗行动
+          }
           try { door.openByTouch(); } catch (e) {}
           return true; // 消耗一次行动但不移动
         }
@@ -205,6 +210,19 @@ export default class Player extends Entity {
    * @param {Enemy} enemy 
    */
   async attackEnemy(enemy) {
+    // 检查是否试图攻击Boss房内的Boss但玩家不在Boss房内
+    try {
+      if (enemy.isBoss && this.scene.bossRoom && !this.scene.bossRoomLocked) {
+        const r = this.scene.bossRoom;
+        const px = this.tileX, py = this.tileY;
+        const playerInside = (px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height);
+        if (!playerInside) {
+          this.scene.events.emit('showMessage', '需要进入房间才能攻击首领！');
+          return;
+        }
+      }
+    } catch (e) {}
+    
     // 攻击动画 - 向敌人方向冲刺
     const dx = enemy.tileX - this.tileX;
     const dy = enemy.tileY - this.tileY;

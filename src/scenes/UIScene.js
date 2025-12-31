@@ -645,9 +645,20 @@ export default class UIScene extends Phaser.Scene {
       }
     }
 
-    const close = this.add.text(width/2, height/2 + boxH/2 - 30, '返回', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
-    close.on('pointerdown', () => { try { container.destroy(true); this.spellMenuContainer = null; } catch(e) {} });
+    const close = this.add.text(width/2, height/2 + boxH/2 - 30, '返回 (ESC)', { fontSize: '18px', color: '#aaffaa' }).setOrigin(0.5).setInteractive();
+    const selfRef = this;
+    const closeMenu = () => { 
+      try { 
+        selfRef.input.keyboard.off('keydown-ESC', closeMenu);
+        container.destroy(true); 
+        selfRef.spellMenuContainer = null; 
+      } catch(e) {} 
+    };
+    close.on('pointerdown', closeMenu);
     container.add(close);
+    
+    // 监听ESC键直接关闭
+    this.input.keyboard.on('keydown-ESC', closeMenu);
 
     this.spellMenuContainer = container;
   }

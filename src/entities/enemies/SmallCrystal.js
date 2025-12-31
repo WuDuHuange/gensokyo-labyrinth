@@ -156,8 +156,31 @@ export default class SmallCrystal extends Enemy {
   }
 
   die() {
+    // 确保标记为死亡
+    this.isAlive = false;
     this.isAiming = false;
-    for (const g of this.aimGraphics) try { g.destroy(); } catch (e) {}
+    
+    // 清理瞄准图形
+    for (const g of this.aimGraphics) {
+      try { g.destroy(); } catch (e) {}
+    }
+    this.aimGraphics = [];
+    
+    // 确保精灵被销毁
+    try {
+      if (this.sprite) {
+        this.sprite.setVisible(false);
+        this.sprite.setActive(false);
+      }
+    } catch (e) {}
+    
+    // 从敌人列表中移除自己
+    try {
+      if (this.scene && this.scene.removeEnemy) {
+        this.scene.removeEnemy(this);
+      }
+    } catch (e) {}
+    
     try { super.die(); } catch (e) {}
   }
 }

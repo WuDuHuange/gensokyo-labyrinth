@@ -851,9 +851,110 @@ export default class MenuScene extends Phaser.Scene {
   // ================== 符卡配置 ==================
   openSpellMenu() {
     const game = this.scene.get('GameScene');
-    if (!game) { this.closeMenu(); return; }
-    game.events.emit('openSpellMenu');
-    this.closeMenu();
+    if (!game || !game.spellCardSystem) { 
+      this.showToast('无法获取符卡系统');
+      return; 
+    }
+    
+    this.mainMenuContainer.setVisible(false);
+    
+    const panelWidth = 500;
+    const panelHeight = 400;
+    
+    const container = this.add.container(0, 0);
+    this.currentPanel = container;
+    
+    // 背景
+    const bg = this.add.graphics();
+    bg.fillStyle(this.colors.panel, 0.95);
+    bg.fillRoundedRect(this.width/2 - panelWidth/2, this.height/2 - panelHeight/2, panelWidth, panelHeight, 16);
+    bg.lineStyle(2, this.colors.border, 0.8);
+    bg.strokeRoundedRect(this.width/2 - panelWidth/2, this.height/2 - panelHeight/2, panelWidth, panelHeight, 16);
+    container.add(bg);
+    
+    // 标题
+    const title = this.add.text(this.width/2, this.height/2 - panelHeight/2 + 30, '✦ 符卡配置', {
+      fontSize: '22px',
+      fontStyle: 'bold',
+      color: this.colors.accent
+    }).setOrigin(0.5);
+    container.add(title);
+    
+    // 说明
+    const hint = this.add.text(this.width/2, this.height/2 - panelHeight/2 + 60, '点击 Z/X/C 按钮将符卡分配到对应快捷键', {
+      fontSize: '12px',
+      color: this.colors.textDim
+    }).setOrigin(0.5);
+    container.add(hint);
+    
+    const spells = game.spellCardSystem.getStatus();
+    const startY = this.height/2 - panelHeight/2 + 100;
+    
+    // 显示所有符卡
+    for (let si = 0; si < spells.length; si++) {
+      const s = spells[si];
+      const y = startY + si * 50;
+      
+      // 符卡名称
+      const nameTxt = this.add.text(this.width/2 - panelWidth/2 + 30, y, s.name, {
+        fontSize: '16px',
+        color: this.colors.text
+      }).setOrigin(0, 0.5);
+      container.add(nameTxt);
+      
+      // 符卡描述
+      const descTxt = this.add.text(this.width/2 - panelWidth/2 + 30, y + 18, `消耗: ${s.mpCost} MP | 冷却: ${s.cooldown}回合`, {
+        fontSize: '11px',
+        color: this.colors.textDim
+      }).setOrigin(0, 0.5);
+      container.add(descTxt);
+      
+      // 创建三个槽位按钮 (Z/X/C)
+      const labels = ['Z', 'X', 'C'];
+      const self = this;
+      for (let slot = 0; slot < 3; slot++) {
+        // 检查当前槽位是否绑定了此符卡
+        const isActive = game.player.quickSlots && game.player.quickSlots[slot] === si;
+        
+        const btn = this.add.text(this.width/2 + 80 + slot * 50, y, labels[slot], {
+          fontSize: '14px',
+          color: isActive ? '#88ff88' : '#ffffff',
+          backgroundColor: isActive ? '#335533' : '#222233',
+          padding: { x: 10, y: 5 }
+        }).setOrigin(0.5).setInteractive();
+        
+        btn.on('pointerover', function() { btn.setStyle({ backgroundColor: '#445544' }); });
+        btn.on('pointerout', function() { 
+          const active = game.player.quickSlots && game.player.quickSlots[slot] === si;
+          btn.setStyle({ backgroundColor: active ? '#335533' : '#222233' }); 
+        });
+        
+        (function(sIndex, slotIndex) {
+          btn.on('pointerdown', function() {
+            try { 
+              game.player.setQuickSlot(slotIndex, sIndex);
+              self.showToast(`已将「${s.name}」绑定到 ${labels[slotIndex]} 键`);
+              // 刷新面板
+              self.closeCurrentPanel();
+              self.openSpellMenu();
+            } catch (e) {}
+          });
+        })(si, slot);
+        
+        container.add(btn);
+      }
+    }
+    
+    // 返回按钮
+    const back = this.add.text(this.width/2, this.height/2 + panelHeight/2 - 30, '返回 (X/ESC)', {
+      fontSize: '14px',
+      color: this.colors.textDim
+    }).setOrigin(0.5).setInteractive();
+    back.on('pointerdown', () => this.closeCurrentPanel());
+    container.add(back);
+    
+    this.panelNavigate = null;
+    this.panelConfirm = () => this.closeCurrentPanel();
   }
 
   // ================== 存档/读档 ==================

@@ -164,7 +164,7 @@ export default class ItemSystem {
     // 金币直接加入升级系统，不进入背包
     if (cfg.type === 'currency' && it.id === 'gold_coin') {
       try {
-        const goldValue = 10 + Math.floor(Math.random() * 11); // 10-20 金币
+        const goldValue = 18 + Math.floor(Math.random() * 13); // 18-30 金币，提升基础收益
         if (this.scene.spellUpgradeSystem) {
           this.scene.spellUpgradeSystem.addGold(goldValue);
         } else {

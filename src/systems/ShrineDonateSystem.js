@@ -48,6 +48,8 @@ export default class ShrineDonateSystem {
     
     // 每局游戏的捐赠次数（影响后续效果？）
     this.donationCount = 0;
+    this.totalDonated = 0;
+    this.blessingLevel = 0;
     
     // 临时 debuff 效果
     this.activeDebuffs = [];
@@ -83,13 +85,15 @@ export default class ShrineDonateSystem {
     // 扣除金币
     upgradeSystem.gold -= donation.amount;
     this.donationCount++;
+    this.totalDonated += donation.amount;
     
-    // 判定结果
+    // 判定结果（少量正反馈提升）
     const isGood = Math.random() < donation.luck;
     const outcome = this.pickOutcome(isGood ? 'good' : 'bad');
     
     // 应用效果
     const result = this.applyOutcome(outcome, isGood);
+    if (isGood) this.blessingLevel++;
     
     // 显示消息
     this.scene.events.emit('showMessage', `向神社捐赠了 ${donation.amount} 金币...`);
@@ -142,34 +146,43 @@ export default class ShrineDonateSystem {
         player.mp = player.maxMp;
         return { mpRestored: player.maxMp };
         
-      case 'buff_attack':
-        player.attack += 5;
-        player.baseAttack += 5;
-        return { attackBonus: 5 };
+      case 'buff_attack': {
+        const bonus = Math.max(5, Math.floor(player.baseAttack * 0.2));
+        player.attack += bonus;
+        player.baseAttack += bonus;
+        return { attackBonus: bonus };
+      }
         
-      case 'buff_defense':
-        player.defense += 3;
-        player.baseDefense += 3;
-        return { defenseBonus: 3 };
+      case 'buff_defense': {
+        const bonus = Math.max(3, Math.floor(player.baseDefense * 0.2));
+        player.defense += bonus;
+        player.baseDefense += bonus;
+        return { defenseBonus: bonus };
+      }
         
-      case 'buff_maxhp':
-        player.baseMaxHp += 15;
-        player.maxHp += 15;
-        player.hp += 15;
-        return { maxHpBonus: 15 };
+      case 'buff_maxhp': {
+        const bonus = Math.max(15, Math.floor(player.baseMaxHp * 0.2));
+        player.baseMaxHp += bonus;
+        player.maxHp += bonus;
+        player.hp += bonus;
+        return { maxHpBonus: bonus };
+      }
         
-      case 'buff_maxmp':
-        player.baseMaxMp += 8;
-        player.maxMp += 8;
-        player.mp += 8;
-        return { maxMpBonus: 8 };
+      case 'buff_maxmp': {
+        const bonus = Math.max(8, Math.floor(player.baseMaxMp * 0.25));
+        player.baseMaxMp += bonus;
+        player.maxMp += bonus;
+        player.mp += bonus;
+        return { maxMpBonus: bonus };
+      }
         
-      case 'gold_bonus':
-        const goldAmount = 30 + Math.floor(Math.random() * 71); // 30-100
+      case 'gold_bonus': {
+        const goldAmount = 80 + Math.floor(Math.random() * 71); // 80-150
         if (this.scene.spellUpgradeSystem) {
           this.scene.spellUpgradeSystem.gold += goldAmount;
         }
         return { goldGained: goldAmount };
+      }
         
       case 'random_talent':
         if (this.scene.talentSystem) {

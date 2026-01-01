@@ -84,6 +84,9 @@ export default class GameScene extends Phaser.Scene {
     
     // 神社位置
     this.shrines = [];
+    // 神社回程
+    this.lastShrinePos = null;
+    this.shrineReturnUsed = false; // 每层一次
     
     // 游戏是否已结束（防止重复调用gameOver/victory）
     this.isGameEnded = false;
@@ -163,6 +166,9 @@ export default class GameScene extends Phaser.Scene {
     
     // 生成地图
     this.generateMap();
+    // 重置神社回程状态
+    this.lastShrinePos = null;
+    this.shrineReturnUsed = false;
     // 若存在 boss 房，则在击败 boss 之前关闭出口
     try {
       const hasBoss = this.mapData && this.mapData.rooms && this.mapData.rooms.some(r => r.type === 'boss');
@@ -434,7 +440,8 @@ export default class GameScene extends Phaser.Scene {
           centerY * TILE_SIZE + TILE_SIZE / 2,
           'shrine'
         ),
-        used: false // 每个神社只能使用一次
+        usesLeft: 2,
+        used: false // 兼容旧逻辑，usesLeft 为 0 时设为 true
       };
       shrine.sprite.setDepth(7);
       
@@ -456,6 +463,7 @@ export default class GameScene extends Phaser.Scene {
               pos.y * TILE_SIZE + TILE_SIZE / 2,
               'shrine'
             ),
+            usesLeft: 2,
             used: false
           };
           shrine.sprite.setDepth(7);
@@ -469,17 +477,20 @@ export default class GameScene extends Phaser.Scene {
    * 获取指定位置的神社
    */
   getShrineAt(x, y) {
-    return this.shrines.find(s => s.tileX === x && s.tileY === y && !s.used);
+    return this.shrines.find(s => s.tileX === x && s.tileY === y && (!s.used) && (s.usesLeft === undefined || s.usesLeft > 0));
   }
   
   /**
    * 与神社交互
    */
   interactWithShrine(shrine) {
-    if (!shrine || shrine.used) {
+    if (!shrine || shrine.used || (shrine.usesLeft !== undefined && shrine.usesLeft <= 0)) {
       this.events.emit('showMessage', '这座神社已经没有神力了...');
       return;
     }
+
+    // 记录最近可返回的神社位置
+    this.lastShrinePos = { x: shrine.tileX, y: shrine.tileY };
     
     // 显示捐赠菜单
     this.showShrineDonateMenu(shrine);
@@ -536,6 +547,12 @@ export default class GameScene extends Phaser.Scene {
       optionTexts.push(text);
     });
     
+    const usageText = this.add.text(menuX + 20, menuY + menuHeight - 50, `剩余次数: ${shrine.usesLeft ?? 1}`, {
+      fontSize: '14px',
+      fontFamily: 'Arial',
+      color: '#88ff88'
+    }).setScrollFactor(0).setDepth(1001);
+
     const cancelText = this.add.text(menuX + 20, menuY + menuHeight - 30, 'X. 离开', {
       fontSize: '14px',
       fontFamily: 'Arial',
@@ -550,6 +567,7 @@ export default class GameScene extends Phaser.Scene {
       title.destroy();
       goldText.destroy();
       optionTexts.forEach(t => t.destroy());
+      usageText.destroy();
       cancelText.destroy();
       self.input.keyboard.off('keydown', handleKey);
     };
@@ -569,9 +587,19 @@ export default class GameScene extends Phaser.Scene {
           cleanup();
           const result = this.shrineDonateSystem.donate(idx);
           if (result.success) {
-            // 神社使用后标记
-            shrine.used = true;
-            shrine.sprite.setTint(0x666666);
+            if (shrine.usesLeft !== undefined) {
+              shrine.usesLeft -= 1;
+              if (shrine.usesLeft <= 0) {
+                shrine.used = true;
+                shrine.sprite.setTint(0x666666);
+              } else {
+                // 显示剩余次数提示
+                this.events.emit('showMessage', `神社还可使用 ${shrine.usesLeft} 次`);
+              }
+            } else {
+              shrine.used = true;
+              shrine.sprite.setTint(0x666666);
+            }
           }
           this.updateUI();
         } else {
@@ -1003,6 +1031,11 @@ export default class GameScene extends Phaser.Scene {
       this.scene.pause();
       return;
     }
+
+    // 快速回神社（每层一次）
+    if (Phaser.Input.Keyboard.JustDown(this.returnKey)) {
+      if (this.tryReturnToShrine()) return;
+    }
     
     // 如果按住 Q（转向模式），在主角身边显示指向箭头
     if (this.turnKey && this.turnKey.isDown && this.player) {
@@ -1184,7 +1217,7 @@ export default class GameScene extends Phaser.Scene {
     }
     
     // 等待（支持按住空格连续跳过回合）
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) || this.spaceKey.isDown) {
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
       this.player.wait();
       acted = true;
       this.heldMove = null;
@@ -1429,23 +1462,47 @@ export default class GameScene extends Phaser.Scene {
         }
       } catch (e) {}
       
-      // 危险房间掉落额外奖励
+      // 危险房间/战斗房掉落奖励
       if (room.type === 'danger') {
         try {
-          const dropCount = this.mapManager.randomRange(2, 4);
+          const dropCount = this.mapManager.randomRange(3, 5);
+          const lootTable = [
+            { id: 'talent_book', weight: 3 },
+            { id: 'chest_wood', weight: 2 },
+            { id: 'gold_coin', weight: 4 },
+            { id: 'potion_small', weight: 2 },
+            { id: 'herb', weight: 1 }
+          ];
+          const pickWeighted = () => {
+            const total = lootTable.reduce((s, it) => s + it.weight, 0);
+            let r = Math.random() * total;
+            for (const it of lootTable) {
+              r -= it.weight;
+              if (r <= 0) return it.id;
+            }
+            return lootTable[lootTable.length - 1].id;
+          };
           for (let i = 0; i < dropCount; i++) {
             const rx = this.mapManager.randomRange(room.x + 1, room.x + room.width - 2);
             const ry = this.mapManager.randomRange(room.y + 1, room.y + room.height - 2);
             if (!this.mapManager.isWalkable(rx, ry)) continue;
-            // 危险房掉落更好的东西，包括天赋书
-            const roll = Math.random();
-            const itemId = roll < 0.25 ? 'talent_book' : (roll < 0.5 ? 'potion_small' : (roll < 0.75 ? 'gold_coin' : 'herb'));
-            this.itemSystem.spawnItem(rx, ry, itemId);
+            this.itemSystem.spawnItem(rx, ry, pickWeighted());
           }
           this.events.emit('showMessage', '危险房间已清理！获得了丰厚的奖励！');
         } catch (e) {}
       } else {
-        this.events.emit('showMessage', '战斗房间已清理，门已解锁。');
+        try {
+          const dropCount = this.mapManager.randomRange(1, 2);
+          const loot = ['gold_coin', 'gold_coin', 'potion_small', 'herb', 'chest_wood'];
+          for (let i = 0; i < dropCount; i++) {
+            const rx = this.mapManager.randomRange(room.x + 1, room.x + room.width - 2);
+            const ry = this.mapManager.randomRange(room.y + 1, room.y + room.height - 2);
+            if (!this.mapManager.isWalkable(rx, ry)) continue;
+            const itemId = loot[Math.floor(Math.random() * loot.length)];
+            this.itemSystem.spawnItem(rx, ry, itemId);
+          }
+        } catch (e) {}
+        this.events.emit('showMessage', '战斗房间已清理，获得了战利品！');
       }
       
       this.currentCombatRoom = null;
@@ -1616,6 +1673,55 @@ export default class GameScene extends Phaser.Scene {
     if (!this.traps || !entity) return;
     for (const trap of this.traps) {
       trap.checkTrigger(entity);
+    }
+  }
+
+  /**
+   * 快速回神社（每层一次）
+   */
+  tryReturnToShrine() {
+    try {
+      if (this.shrineReturnUsed) {
+        this.events.emit('showMessage', '本层回神社已使用。');
+        return false;
+      }
+      if (this.combatRoomLocked || this.bossRoomLocked) {
+        this.events.emit('showMessage', '战斗/首领房间中无法回神社！');
+        return false;
+      }
+
+      const target = this.lastShrinePos || (this.shrines && this.shrines[0] ? { x: this.shrines[0].tileX, y: this.shrines[0].tileY } : null);
+      if (!target) {
+        this.events.emit('showMessage', '本层没有可用的神社。');
+        return false;
+      }
+
+      this.isProcessingTurn = true;
+      const doTeleport = async () => {
+        await this.player.moveTo(target.x, target.y, false);
+        // 更新迷雾
+        if (this.fog) {
+          this.fog.setBlockers(this.getVisionBlockers());
+          this.fog.compute(this.mapData.tiles, this.player.tileX, this.player.tileY);
+          this.updateFogVisuals();
+        }
+        // 回到神社后触发神社交互（不自动消费）
+        try {
+          const shrine = this.getShrineAt(target.x, target.y);
+          if (shrine) this.interactWithShrine(shrine);
+        } catch (e) {}
+
+        this.shrineReturnUsed = true;
+        this.events.emit('showMessage', '已返回神社（本层次数已用完）。');
+        this.endPlayerTurn();
+        this.isProcessingTurn = false;
+      };
+
+      doTeleport();
+      return true;
+    } catch (e) {
+      this.isProcessingTurn = false;
+      return false;
     }
   }
   

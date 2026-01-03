@@ -10,7 +10,7 @@ export default class MainMenuScene extends Phaser.Scene {
 
   create() {
     AudioManager.init(this);
-    AudioManager.play('music_title', { volume: 0.6, loop: true, fade: 800 });
+    this.ensureTitleMusic();
 
     var width = this.cameras.main.width;
     var height = this.cameras.main.height;
@@ -26,6 +26,16 @@ export default class MainMenuScene extends Phaser.Scene {
 
     this.input.keyboard.on('keydown-ENTER', function() { this.startGame(); }.bind(this));
     this.input.keyboard.on('keydown-SPACE', function() { this.startGame(); }.bind(this));
+  }
+
+  ensureTitleMusic() {
+    const play = () => AudioManager.play('music_title', { volume: 0.6, loop: true, fade: 800 });
+    // 尝试立即播放
+    play();
+    // 兼容浏览器需要用户交互解锁音频的情况
+    this.sound.once('unlocked', play);
+    this.input.once('pointerdown', play);
+    this.input.keyboard.once('keydown', play);
   }
 
   startGame() {

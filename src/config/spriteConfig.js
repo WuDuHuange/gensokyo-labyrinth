@@ -23,7 +23,7 @@ export const SPRITE_CONFIG = {
   // ========== 主要配置 ==========
   
   // 是否使用自定义精灵图（设为 true 后会加载 png 文件）
-  useCustomSprite: false,
+  useCustomSprite: true,
   
   // 你画的图片原始尺寸（正方形边长）
   sourceSize: 128,  // 支持 64 或 128

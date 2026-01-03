@@ -1,12 +1,17 @@
 /**
  * 主菜单场景：游戏启动后的开始界面
  */
+import AudioManager from '../systems/AudioManager.js';
+
 export default class MainMenuScene extends Phaser.Scene {
   constructor() {
     super({ key: 'MenuScene' }); // 保持与现有引用一致（PreloadScene 启动 'MenuScene'）
   }
 
   create() {
+    AudioManager.init(this);
+    AudioManager.play('music_title', { volume: 0.6, loop: true, fade: 800 });
+
     var width = this.cameras.main.width;
     var height = this.cameras.main.height;
 

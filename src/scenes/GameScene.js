@@ -10,6 +10,7 @@ import TalentSystem from '../systems/TalentSystem.js';
 import EquipmentSystem from '../systems/EquipmentSystem.js';
 import SpellUpgradeSystem from '../systems/SpellUpgradeSystem.js';
 import ShrineDonateSystem from '../systems/ShrineDonateSystem.js';
+import AudioManager from '../systems/AudioManager.js';
 import Player from '../entities/Player.js';
 import SlowFairy from '../entities/enemies/SlowFairy.js';
 import NormalFairy from '../entities/enemies/NormalFairy.js';
@@ -159,10 +160,15 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
+    AudioManager.init(this);
+
     // 初始化系统
     this.actionQueue = new ActionQueue();
     this.spellCardSystem = new SpellCardSystem(this);
     this.spellCardSystem.initialize();
+
+    // 游戏内默认 BGM（道中）
+    AudioManager.play('music_game', { volume: 0.5, loop: true, fade: 800 });
     
     // 生成地图
     this.generateMap();
@@ -1311,6 +1317,9 @@ export default class GameScene extends Phaser.Scene {
         
         // 触发 Boss UI 显示
         this.events.emit('bossEncounter', this.bossEntity);
+
+        // 切换为 Boss BGM
+        AudioManager.play('music_boss', { volume: 0.8, loop: true, fade: 900 });
         
         // 将房间所有门标记为 locked
         for (const d of this.doors) {
@@ -1354,6 +1363,9 @@ export default class GameScene extends Phaser.Scene {
       this.exitActive = true;
       this.updateExitVisual();
       this.events.emit('showMessage', '首领被击败了！通往出口的门显现为绿色。');
+
+      // 切回道中 BGM
+      AudioManager.play('music_game', { volume: 0.5, loop: true, fade: 800 });
     } catch (e) {}
   }
 
@@ -1490,6 +1502,8 @@ export default class GameScene extends Phaser.Scene {
           }
           this.events.emit('showMessage', '危险房间已清理！获得了丰厚的奖励！');
         } catch (e) {}
+        // 危险房保底：装备/特性
+        this.dropGuaranteedReward(room.centerX, room.centerY, true);
       } else {
         try {
           const dropCount = this.mapManager.randomRange(1, 2);
@@ -1502,6 +1516,8 @@ export default class GameScene extends Phaser.Scene {
             this.itemSystem.spawnItem(rx, ry, itemId);
           }
         } catch (e) {}
+        // 战斗房保底：装备/特性
+        this.dropGuaranteedReward(room.centerX, room.centerY, true);
         this.events.emit('showMessage', '战斗房间已清理，获得了战利品！');
       }
       
@@ -1758,6 +1774,12 @@ export default class GameScene extends Phaser.Scene {
     if (index !== -1) {
       this.enemies.splice(index, 1);
     }
+    // 精英怪保底掉落装备/特性
+    try {
+      if (enemy && enemy.isElite) {
+        this.dropGuaranteedReward(enemy.tileX, enemy.tileY, true);
+      }
+    } catch (e) {}
     // 天赋击杀效果（如吸血恢复）
     if (this.talentSystem) {
       try { this.talentSystem.onKillEnemy(); } catch (e) {}
@@ -1768,6 +1790,32 @@ export default class GameScene extends Phaser.Scene {
     }
     // 检查战斗房是否已清理
     try { this.checkCombatRoomCleared(); } catch (e) {}
+  }
+
+  // 选择保底奖励（倾向装备或特性）
+  pickGuaranteedReward(preferEquipment = false) {
+    const equipPool = ['omamori_health', 'omamori_protection', 'magatama_power', 'ribbon_red'];
+    const talentId = 'talent_book';
+    const roll = Math.random();
+    const equipChance = preferEquipment ? 0.7 : 0.55;
+    if (roll < equipChance) {
+      return equipPool[Math.floor(Math.random() * equipPool.length)];
+    }
+    return talentId;
+  }
+
+  // 在附近安全位置生成保底奖励
+  dropGuaranteedReward(centerX, centerY, preferEquipment = false) {
+    if (!this.itemSystem) return;
+    const itemId = this.pickGuaranteedReward(preferEquipment);
+    if (!itemId) return;
+    let pos = null;
+    try {
+      const found = this.itemSystem.findDropPositions(centerX, centerY, 1, 4);
+      pos = found && found[0] ? found[0] : null;
+    } catch (e) { pos = null; }
+    if (!pos) pos = { x: centerX, y: centerY };
+    try { this.itemSystem.spawnItem(pos.x, pos.y, itemId); } catch (e) {}
   }
 
   /**
@@ -1894,6 +1942,7 @@ export default class GameScene extends Phaser.Scene {
     const self = this;
     this.time.delayedCall(1500, () => {
       try {
+        AudioManager.stop({ fade: 600 });
         self.cameras.main.fadeOut(1000, 0, 0, 0);
         self.cameras.main.once('camerafadeoutcomplete', () => {
           try { self.scene.stop('UIScene'); } catch (e) {}
@@ -1926,6 +1975,7 @@ export default class GameScene extends Phaser.Scene {
     const self = this;
     this.time.delayedCall(1500, () => {
       try {
+        AudioManager.stop({ fade: 600 });
         self.cameras.main.fadeOut(1000, 0, 0, 0);
         self.cameras.main.once('camerafadeoutcomplete', () => {
           try { self.scene.stop('UIScene'); } catch (e) {}

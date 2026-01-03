@@ -2,6 +2,7 @@
  * 启动场景 - 初始化游戏资源
  */
 import { SPRITE_CONFIG } from '../config/spriteConfig.js';
+import AudioManager from '../systems/AudioManager.js';
 
 export default class BootScene extends Phaser.Scene {
   constructor() {
@@ -55,6 +56,9 @@ export default class BootScene extends Phaser.Scene {
       this.load.image('danmakuFairy', 'assets/sprites/danmakuFairy.png');
       // Boss 暂时继续用程序生成
     }
+
+    // 预加载 BGM
+    AudioManager.preload(this);
   }
 
   create() {

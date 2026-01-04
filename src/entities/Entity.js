@@ -1,9 +1,12 @@
 /**
  * 实体基类
  * 所有游戏对象的基类
+ * 
+ * Superhot 重构：支持平滑移动和实时 Hitbox
  */
 import { TILE_SIZE } from '../config/gameConfig.js';
 import { SPRITE_CONFIG, getSpriteScale, getSpriteConfig } from '../config/spriteConfig.js';
+import { TIME_CONFIG } from '../systems/TimeScaleManager.js';
 
 export default class Entity {
   constructor(scene, x, y, texture, config = {}) {
@@ -34,6 +37,32 @@ export default class Entity {
     // 保存偏移量用于移动计算
     this.spriteOffsetY = offsetY;
     
+    // ========== Superhot: 实时位置与 Hitbox ==========
+    // 像素坐标（实时位置，用于碰撞检测）
+    this.pixelX = baseX;
+    this.pixelY = baseY;
+    
+    // Hitbox 半径（用于弹幕碰撞）
+    this.hitboxRadius = config.hitboxRadius || 8;
+    
+    // 是否正在移动中（平滑补间期间）
+    this.isMoving = false;
+    
+    // 移动起点和终点（用于插值）
+    this.moveStartX = baseX;
+    this.moveStartY = baseY;
+    this.moveEndX = baseX;
+    this.moveEndY = baseY;
+    this.moveProgress = 0; // 0 ~ 1
+    this.moveDuration = TIME_CONFIG.MOVE_DURATION;
+    
+    // 当前移动 tween 引用
+    this.moveTween = null;
+    
+    // 呼吸/跳动动画
+    this.breatheTween = null;
+    // ================================================
+    
     // 基础属性
     this.name = config.name || 'Entity';
     this.maxHp = config.hp || 100;
@@ -48,10 +77,43 @@ export default class Entity {
     // 状态
     this.isAlive = true;
     this.isPlayer = false;
+    
+    // 启动呼吸动画
+    this.startBreatheAnimation();
+  }
+  
+  /**
+   * 启动呼吸/跳动动画（静止时更明显）
+   */
+  startBreatheAnimation() {
+    if (this.breatheTween) return;
+    
+    try {
+      this.breatheTween = this.scene.tweens.add({
+        targets: this.sprite,
+        scaleY: { from: this.sprite.scaleY, to: this.sprite.scaleY * 1.02 },
+        duration: 800,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
+    } catch (e) {}
+  }
+  
+  /**
+   * 停止呼吸动画
+   */
+  stopBreatheAnimation() {
+    if (this.breatheTween) {
+      try {
+        this.breatheTween.stop();
+        this.breatheTween = null;
+      } catch (e) {}
+    }
   }
 
   /**
-   * 移动到指定瓦片位置
+   * 移动到指定瓦片位置（Superhot 重构：平滑补间 + 实时 Hitbox）
    * @param {number} tileX 
    * @param {number} tileY 
    * @param {boolean} animate - 是否使用动画
@@ -59,28 +121,84 @@ export default class Entity {
    */
   moveTo(tileX, tileY, animate = true) {
     return new Promise((resolve) => {
-      this.tileX = tileX;
-      this.tileY = tileY;
+      // 保存起点
+      this.moveStartX = this.pixelX;
+      this.moveStartY = this.pixelY;
       
+      // 计算终点
       const targetX = tileX * TILE_SIZE + TILE_SIZE / 2;
       const targetY = tileY * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY;
       
+      this.moveEndX = targetX;
+      this.moveEndY = targetY;
+      
+      // 更新逻辑坐标（立即）
+      this.tileX = tileX;
+      this.tileY = tileY;
+      
       if (animate) {
-        // 玩家移动稍慢一点，敌人移动更快
-        const duration = this.isPlayer ? 80 : 15;
-        this.scene.tweens.add({
-          targets: this.sprite,
-          x: targetX,
-          y: targetY,
+        this.isMoving = true;
+        this.moveProgress = 0;
+        
+        // 使用 Superhot 风格的移动时长（玩家更长以便观察）
+        const duration = this.isPlayer ? this.moveDuration : Math.min(this.moveDuration * 0.3, 60);
+        
+        // 取消之前的移动 tween
+        if (this.moveTween) {
+          try { this.moveTween.stop(); } catch (e) {}
+        }
+        
+        this.moveTween = this.scene.tweens.add({
+          targets: this,
+          moveProgress: 1,
           duration: duration,
-          ease: 'Linear',
-          onComplete: () => resolve()
+          ease: 'Quad.easeOut',
+          onUpdate: () => {
+            // 实时更新像素位置和精灵位置
+            this.pixelX = Phaser.Math.Linear(this.moveStartX, this.moveEndX, this.moveProgress);
+            this.pixelY = Phaser.Math.Linear(this.moveStartY, this.moveEndY, this.moveProgress);
+            this.sprite.setPosition(this.pixelX, this.pixelY);
+          },
+          onComplete: () => {
+            this.isMoving = false;
+            this.pixelX = targetX;
+            this.pixelY = targetY;
+            this.sprite.setPosition(targetX, targetY);
+            this.moveTween = null;
+            resolve();
+          }
         });
       } else {
+        // 瞬移
+        this.pixelX = targetX;
+        this.pixelY = targetY;
         this.sprite.setPosition(targetX, targetY);
+        this.isMoving = false;
         resolve();
       }
     });
+  }
+  
+  /**
+   * 获取当前 Hitbox 中心位置（像素坐标）
+   * 用于弹幕碰撞检测
+   */
+  getHitboxCenter() {
+    return { x: this.pixelX, y: this.pixelY };
+  }
+  
+  /**
+   * 检测与弹幕的碰撞
+   * @param {number} bulletX 
+   * @param {number} bulletY 
+   * @param {number} bulletRadius 
+   * @returns {boolean}
+   */
+  checkBulletCollision(bulletX, bulletY, bulletRadius) {
+    const dx = bulletX - this.pixelX;
+    const dy = bulletY - this.pixelY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    return dist < (this.hitboxRadius + bulletRadius);
   }
 
   /**

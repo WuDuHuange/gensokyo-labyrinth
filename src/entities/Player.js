@@ -110,7 +110,7 @@ export default class Player extends Entity {
   }
 
   /**
-   * 移动玩家
+   * 移动玩家（Superhot 重构：自动射击 + 瞬步撞击）
    * @param {number} dx - X方向偏移
    * @param {number} dy - Y方向偏移
    * @returns {Promise<boolean>} 是否成功移动
@@ -142,21 +142,200 @@ export default class Player extends Entity {
       return false;
     }
     
-    // 检查是否有敌人
+    // 检查是否有敌人（瞬步撞击）
     const enemy = this.scene.getEnemyAt(newX, newY);
     if (enemy) {
-      // 攻击敌人
-      await this.attackEnemy(enemy);
+      // 瞬步撞击
+      await this.dashBash(enemy, dx, dy);
       return true;
     }
     
-    // 移动
+    // 通知时间管理器开始行动
+    if (this.scene.timeManager) {
+      this.scene.timeManager.startAction();
+    }
+    
+    // 平滑移动
     await this.moveTo(newX, newY);
+    
+    // 自动射击：移动时自动朝最近敌人发射
+    this.autoFire();
+    
+    // 通知时间管理器结束行动
+    if (this.scene.timeManager) {
+      this.scene.timeManager.endAction();
+    }
     
     // 检查是否到达出口
     this.scene.checkExit();
     
     return true;
+  }
+  
+  /**
+   * 瞬步撞击（Dash Bash）
+   * 高风险高回报：能秒杀则无敌穿透，否则受到反击
+   */
+  async dashBash(enemy, dx, dy) {
+    const attackValue = this.getEffectiveAttack();
+    const dashDamage = Math.floor(attackValue * 2.0); // 瞬步伤害倍率
+    
+    // 判断是否能秒杀
+    const canKill = enemy.hp <= dashDamage;
+    
+    // 通知时间管理器开始行动
+    if (this.scene.timeManager) {
+      this.scene.timeManager.startAction();
+    }
+    
+    // 瞬步动画：化作光冲向敌人
+    const startX = this.sprite.x;
+    const startY = this.sprite.y;
+    const targetX = enemy.sprite.x;
+    const targetY = enemy.sprite.y;
+    
+    // 残影效果
+    if (this.scene.screenEffects) {
+      this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 300);
+    }
+    
+    // 冲刺动画
+    await new Promise(resolve => {
+      this.scene.tweens.add({
+        targets: this.sprite,
+        x: targetX,
+        y: targetY,
+        duration: 100,
+        ease: 'Quad.easeIn',
+        onComplete: resolve
+      });
+    });
+    
+    // 造成伤害
+    const damage = enemy.takeDamage(dashDamage);
+    
+    // 显示伤害数字
+    this.scene.events.emit('showDamage', {
+      x: enemy.sprite.x,
+      y: enemy.sprite.y - 20,
+      damage: damage,
+      isHeal: false,
+      isCrit: true // 瞬步总是显示为暴击样式
+    });
+    
+    if (canKill) {
+      // 秒杀：无敌穿透
+      this.scene.events.emit('showMessage', `瞬步突破！击败了 ${enemy.name}！`);
+      this.scene.removeEnemy(enemy);
+      
+      // 穿透到敌人后方
+      const behindX = this.tileX + dx * 2;
+      const behindY = this.tileY + dy * 2;
+      
+      if (this.scene.canMoveTo(behindX, behindY)) {
+        await this.moveTo(behindX, behindY);
+      } else {
+        // 无法穿透，停在敌人位置
+        await this.moveTo(this.tileX + dx, this.tileY + dy);
+      }
+    } else {
+      // 未能秒杀：受到反击
+      const counterDamage = Math.floor(enemy.attack * 0.5);
+      this.takeDamage(counterDamage);
+      
+      this.scene.events.emit('showMessage', `瞬步被挡！${enemy.name} 反击造成 ${counterDamage} 伤害！`);
+      
+      // 弹回原位
+      await new Promise(resolve => {
+        this.scene.tweens.add({
+          targets: this.sprite,
+          x: startX,
+          y: startY,
+          duration: 80,
+          onComplete: resolve
+        });
+      });
+    }
+    
+    // 通知时间管理器结束行动
+    if (this.scene.timeManager) {
+      this.scene.timeManager.endAction();
+    }
+  }
+  
+  /**
+   * 自动射击（移动时自动发射）
+   */
+  autoFire() {
+    if (!this.scene.bulletManager) return;
+    
+    // 找到最近的敌人
+    let nearestEnemy = null;
+    let nearestDist = Infinity;
+    
+    for (const enemy of this.scene.enemies) {
+      if (!enemy.isAlive) continue;
+      const dist = this.getDistanceTo(enemy);
+      if (dist < nearestDist && dist <= 8) { // 8格射程
+        nearestDist = dist;
+        nearestEnemy = enemy;
+      }
+    }
+    
+    // 发射方向
+    let targetX, targetY;
+    if (nearestEnemy) {
+      targetX = nearestEnemy.pixelX;
+      targetY = nearestEnemy.pixelY;
+    } else {
+      // 朝面朝方向发射
+      targetX = this.pixelX + this.facing.x * 100;
+      targetY = this.pixelY + this.facing.y * 100;
+    }
+    
+    // 发射御札
+    const bullet = this.scene.bulletManager.fireAimed(
+      this.pixelX,
+      this.pixelY,
+      targetX,
+      targetY,
+      200, // 玩家子弹速度更快
+      {
+        damage: Math.floor(this.getEffectiveAttack() * 0.5),
+        texture: 'bullet_player',
+        isPlayerBullet: true
+      }
+    );
+    
+    // 播放射击音效
+    try {
+      if (this.scene.sound) {
+        this.scene.sound.play('sfx_shoot', { volume: 0.2 });
+      }
+    } catch (e) {}
+  }
+  
+  /**
+   * 原地狙击（按住等待键时持续射击）
+   */
+  snipeFire() {
+    // 通知时间管理器进入狙击模式
+    if (this.scene.timeManager) {
+      this.scene.timeManager.startSnipe();
+    }
+    
+    // 射速加倍（连续调用 autoFire）
+    this.autoFire();
+    this.autoFire();
+  }
+  
+  /**
+   * 结束狙击模式
+   */
+  endSnipe() {
+    if (this.scene.timeManager) {
+      this.scene.timeManager.endSnipe();
+    }
   }
 
   /**

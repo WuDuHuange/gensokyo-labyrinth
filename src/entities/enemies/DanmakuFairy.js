@@ -1,9 +1,10 @@
 /**
  * 弹幕妖精
- * 可以发射扇形弹幕
+ * 使用向量弹幕系统发射扇形弹幕
  */
 import Enemy from '../Enemy.js';
 import { ENEMY_CONFIG, TILE_SIZE } from '../../config/gameConfig.js';
+import { BulletPattern } from '../../systems/BulletManager.js';
 
 export default class DanmakuFairy extends Enemy {
   constructor(scene, x, y) {
@@ -15,7 +16,16 @@ export default class DanmakuFairy extends Enemy {
       speed: ENEMY_CONFIG.danmakuFairy.speed,
       expReward: ENEMY_CONFIG.danmakuFairy.expReward,
       detectionRange: 8,
-      attackRange: 4  // 远程攻击范围
+      attackRange: 5,  // 远程攻击范围
+      // 向量弹幕配置
+      danmakuEnabled: true,
+      danmakuPattern: BulletPattern.SPREAD,
+      danmakuSpeed: 100,
+      danmakuCount: 5,
+      danmakuSpread: Math.PI / 3, // 60度扇形
+      danmakuCooldown: 2,
+      danmakuRange: 6,
+      danmakuDamage: 12
     });
     
     this.preferredDistance = 3; // 保持与玩家的理想距离
@@ -23,21 +33,35 @@ export default class DanmakuFairy extends Enemy {
 
   /**
    * 重写AI行动
-   * @param {Player} player 
+   * 弹幕妖精的行为：
+   * 1. 优先保持安全距离
+   * 2. 在射程内发射扇形弹幕
+   * 3. 太近时后退
    */
   async act(player) {
     if (!this.isAlive || !player.isAlive) return;
     
     const distance = this.getDistanceTo(player);
     
-    if (distance <= this.attackRange && distance >= 2) {
-      // 在射程内且保持距离，发射弹幕
-      await this.shootDanmaku(player);
-    } else if (distance < 2) {
+    // 冷却递减
+    if (this.currentCooldown > 0) {
+      this.currentCooldown--;
+    }
+    
+    // 下回合将可以射击，显示充能提示
+    if (this.currentCooldown === 1 && distance <= this.danmakuRange) {
+      this.showChargingEffect();
+    }
+    
+    if (distance < 2) {
       // 太近了，后退
       await this.retreat(player);
-    } else if (distance <= this.detectionRange) {
-      // 接近到射程
+    } else if (distance <= this.danmakuRange && this.currentCooldown <= 0) {
+      // 在射程内且冷却完毕，发射弹幕
+      this.fireDanmaku(player);
+      this.scene.events.emit('showMessage', `${this.name} 发射了扇形弹幕！`);
+    } else if (distance > this.danmakuRange && distance <= this.detectionRange) {
+      // 不在射程但在检测范围，接近
       await this.approach(player);
     } else {
       await this.idle();
@@ -45,132 +69,7 @@ export default class DanmakuFairy extends Enemy {
   }
 
   /**
-   * 发射扇形弹幕
-   * @param {Player} player 
-   */
-  async shootDanmaku(player) {
-    this.aiState = 'attack';
-    
-    const direction = this.getDirectionTo(player);
-    
-    // 计算扇形范围（3个方向）
-    const hitPositions = this.calculateFanPositions(direction);
-    
-    // 视觉效果
-    await this.createDanmakuEffect(hitPositions);
-    
-    // 检查玩家是否被命中
-    for (const pos of hitPositions) {
-      if (pos.x === player.tileX && pos.y === player.tileY) {
-        const damage = player.takeDamage(this.attack);
-        
-        this.scene.events.emit('showDamage', {
-          x: player.sprite.x,
-          y: player.sprite.y - 20,
-          damage: damage,
-          isHeal: false
-        });
-        
-        this.scene.events.emit('showMessage', `${this.name} 的弹幕命中灵梦！造成 ${damage} 点伤害！`);
-        break;
-      }
-    }
-  }
-
-  /**
-   * 计算扇形攻击位置
-   * @param {Object} direction 
-   * @returns {Array}
-   */
-  calculateFanPositions(direction) {
-    const positions = [];
-    
-    // 主方向
-    const mainDirs = [];
-    
-    if (direction.x !== 0 && direction.y !== 0) {
-      // 斜向：使用斜向扇形
-      mainDirs.push(direction);
-      mainDirs.push({ x: direction.x, y: 0 });
-      mainDirs.push({ x: 0, y: direction.y });
-    } else if (direction.x !== 0) {
-      // 水平方向
-      mainDirs.push({ x: direction.x, y: 0 });
-      mainDirs.push({ x: direction.x, y: -1 });
-      mainDirs.push({ x: direction.x, y: 1 });
-    } else {
-      // 垂直方向
-      mainDirs.push({ x: 0, y: direction.y });
-      mainDirs.push({ x: -1, y: direction.y });
-      mainDirs.push({ x: 1, y: direction.y });
-    }
-    
-    // 为每个方向计算攻击路径
-    for (const dir of mainDirs) {
-      for (let dist = 1; dist <= this.attackRange; dist++) {
-        const x = this.tileX + dir.x * dist;
-        const y = this.tileY + dir.y * dist;
-        
-        // 检查是否撞墙
-        if (!this.scene.mapManager.isWalkable(x, y)) break;
-        
-        positions.push({ x, y });
-      }
-    }
-    
-    return positions;
-  }
-
-  /**
-   * 创建弹幕视觉效果
-   * @param {Array} positions 
-   */
-  async createDanmakuEffect(positions) {
-    const bullets = [];
-    
-    for (const pos of positions) {
-      const bullet = this.scene.add.sprite(
-        this.tileX * TILE_SIZE + TILE_SIZE / 2,
-        this.tileY * TILE_SIZE + TILE_SIZE / 2,
-        'enemyBullet'
-      );
-      bullets.push({ sprite: bullet, target: pos });
-    }
-    
-    // 所有弹幕同时移动
-    await Promise.all(bullets.map((bullet, index) => {
-      return new Promise(resolve => {
-        this.scene.tweens.add({
-          targets: bullet.sprite,
-          x: bullet.target.x * TILE_SIZE + TILE_SIZE / 2,
-          y: bullet.target.y * TILE_SIZE + TILE_SIZE / 2,
-          duration: 200,
-          delay: index * 30,
-          ease: 'Linear',
-          onComplete: () => {
-            // 命中效果
-            const effect = this.scene.add.graphics();
-            effect.fillStyle(0xb56bff, 0.5);
-            effect.fillCircle(bullet.sprite.x, bullet.sprite.y, 12);
-            
-            this.scene.tweens.add({
-              targets: effect,
-              alpha: 0,
-              duration: 150,
-              onComplete: () => effect.destroy()
-            });
-            
-            bullet.sprite.destroy();
-            resolve();
-          }
-        });
-      });
-    }));
-  }
-
-  /**
    * 后退远离玩家
-   * @param {Player} player 
    */
   async retreat(player) {
     this.aiState = 'retreat';
@@ -185,6 +84,8 @@ export default class DanmakuFairy extends Enemy {
     ];
     
     for (const dir of retreatDirs) {
+      if (dir.x === 0 && dir.y === 0) continue;
+      
       const newX = this.tileX + dir.x;
       const newY = this.tileY + dir.y;
       
@@ -193,14 +94,34 @@ export default class DanmakuFairy extends Enemy {
         return;
       }
     }
+    
+    // 无法后退，原地射击
+    if (this.currentCooldown <= 0) {
+      this.fireDanmaku(player);
+    }
   }
 
   /**
    * 接近玩家到射程
-   * @param {Player} player 
    */
   async approach(player) {
-    // 使用基类的追逐逻辑
     await this.chasePlayer(player);
+  }
+
+  /**
+   * 死亡时释放大规模扩散弹
+   */
+  die() {
+    // 死亡殉爆：圆环弹幕
+    if (this.scene.bulletManager) {
+      this.scene.bulletManager.fireRing(
+        this.pixelX, this.pixelY,
+        8, // 8发
+        this.danmakuSpeed * 0.6,
+        { damage: 6, owner: null }
+      );
+    }
+    
+    super.die();
   }
 }

@@ -1,8 +1,10 @@
 /**
  * 敌人基类
+ * 支持向量弹幕发射
  */
 import Entity from './Entity.js';
 import { TILE_SIZE } from '../config/gameConfig.js';
+import { BulletPattern, BULLET_CONFIG } from '../systems/BulletManager.js';
 
 export default class Enemy extends Entity {
   constructor(scene, x, y, texture, config) {
@@ -16,6 +18,18 @@ export default class Enemy extends Entity {
     this.roomDetectThreshold = config.roomDetectThreshold || 2;
     // 是否已锁定（开始追逐/攻击玩家），锁定后允许离开房间追击
     this.lockedOnPlayer = false;
+    
+    // ===== 向量弹幕系统配置 =====
+    this.danmakuEnabled = config.danmakuEnabled || false;
+    this.danmakuPattern = config.danmakuPattern || BulletPattern.AIMED;
+    this.danmakuSpeed = config.danmakuSpeed || BULLET_CONFIG.BASE_SPEED;
+    this.danmakuCount = config.danmakuCount || 3;
+    this.danmakuSpread = config.danmakuSpread || Math.PI / 4; // 扇形角度
+    this.danmakuCooldown = config.danmakuCooldown || 2; // 射击冷却（回合）
+    this.danmakuRange = config.danmakuRange || 5; // 射程（格子）
+    this.danmakuDamage = config.danmakuDamage || Math.floor((config.attack || 10) * 0.6);
+    this.currentCooldown = 0;
+    this.isCharging = false; // 是否正在充能
   }
 
   /**
@@ -214,5 +228,197 @@ export default class Enemy extends Entity {
         }
       }
     }
+  }
+
+  // ===== 向量弹幕系统方法 =====
+
+  /**
+   * 获取到玩家的角度
+   */
+  getAngleToPlayer(player) {
+    const dx = player.pixelX - this.pixelX;
+    const dy = player.pixelY - this.pixelY;
+    return Math.atan2(dy, dx);
+  }
+
+  /**
+   * 检查玩家是否在弹幕射程内
+   */
+  isPlayerInDanmakuRange(player) {
+    const distance = this.getDistanceTo(player);
+    return distance <= this.danmakuRange;
+  }
+
+  /**
+   * 发射向量弹幕
+   */
+  fireDanmaku(player) {
+    const bulletManager = this.scene.bulletManager;
+    if (!bulletManager) return;
+
+    const baseAngle = this.getAngleToPlayer(player);
+    const bulletConfig = {
+      damage: this.danmakuDamage,
+      owner: this
+    };
+
+    switch (this.danmakuPattern) {
+      case BulletPattern.AIMED:
+        bulletManager.fireAimed(
+          this.pixelX, this.pixelY,
+          player.pixelX, player.pixelY,
+          this.danmakuSpeed,
+          bulletConfig
+        );
+        break;
+
+      case BulletPattern.SPREAD:
+        bulletManager.fireSpread(
+          this.pixelX, this.pixelY,
+          baseAngle,
+          this.danmakuCount,
+          this.danmakuSpread,
+          this.danmakuSpeed,
+          bulletConfig
+        );
+        break;
+
+      case BulletPattern.RING:
+        bulletManager.fireRing(
+          this.pixelX, this.pixelY,
+          this.danmakuCount,
+          this.danmakuSpeed,
+          bulletConfig
+        );
+        break;
+
+      case BulletPattern.SPIRAL:
+        bulletManager.fireSpiral(
+          this.pixelX, this.pixelY,
+          this.danmakuCount,
+          this.danmakuSpeed,
+          0.5, // 角速度
+          bulletConfig
+        );
+        break;
+
+      case BulletPattern.RANDOM:
+        for (let i = 0; i < this.danmakuCount; i++) {
+          const randomAngle = Math.random() * Math.PI * 2;
+          bulletManager.fire(
+            this.pixelX, this.pixelY,
+            randomAngle,
+            this.danmakuSpeed * (0.8 + Math.random() * 0.4),
+            bulletConfig
+          );
+        }
+        break;
+
+      default:
+        bulletManager.fireAimed(
+          this.pixelX, this.pixelY,
+          player.pixelX, player.pixelY,
+          this.danmakuSpeed,
+          bulletConfig
+        );
+    }
+
+    // 射击视觉效果
+    this.showShootEffect();
+    
+    // 重置冷却
+    this.currentCooldown = this.danmakuCooldown;
+  }
+
+  /**
+   * 显示射击视觉效果
+   */
+  showShootEffect() {
+    try {
+      // 闪光
+      this.scene.tweens.add({
+        targets: this.sprite,
+        alpha: { from: 1, to: 0.6 },
+        duration: 50,
+        yoyo: true
+      });
+
+      // 枪口闪光
+      const flash = this.scene.add.circle(this.pixelX, this.pixelY, 12, 0xff6666, 0.8);
+      flash.setDepth(this.sprite.depth + 1);
+
+      this.scene.tweens.add({
+        targets: flash,
+        alpha: 0,
+        scale: 2,
+        duration: 100,
+        onComplete: () => flash.destroy()
+      });
+    } catch (e) {
+      // 忽略效果错误
+    }
+  }
+
+  /**
+   * 显示充能提示
+   */
+  showChargingEffect() {
+    if (this.isCharging) return;
+    this.isCharging = true;
+
+    try {
+      // 红色闪烁警告
+      this.scene.tweens.add({
+        targets: this.sprite,
+        tint: { from: 0xffffff, to: 0xff4444 },
+        duration: 200,
+        yoyo: true,
+        repeat: 2,
+        onComplete: () => {
+          if (this.sprite) {
+            this.sprite.clearTint();
+          }
+          this.isCharging = false;
+        }
+      });
+
+      // 显示警告线
+      if (this.scene.player) {
+        const warningLine = this.scene.add.graphics();
+        warningLine.lineStyle(2, 0xff4444, 0.4);
+        warningLine.lineBetween(
+          this.pixelX, this.pixelY,
+          this.scene.player.pixelX, this.scene.player.pixelY
+        );
+        warningLine.setDepth(5);
+
+        this.scene.tweens.add({
+          targets: warningLine,
+          alpha: 0,
+          duration: 400,
+          onComplete: () => warningLine.destroy()
+        });
+      }
+    } catch (e) {
+      this.isCharging = false;
+    }
+  }
+
+  /**
+   * 死亡时释放殉爆弹幕
+   */
+  die() {
+    // 如果启用弹幕，死亡时放出小规模扩散弹
+    if (this.danmakuEnabled && this.scene.bulletManager) {
+      this.scene.bulletManager.fireRing(
+        this.pixelX, this.pixelY,
+        4, // 4发
+        this.danmakuSpeed * 0.5,
+        { damage: Math.floor(this.danmakuDamage * 0.3), owner: null }
+      );
+    }
+
+    // 调用父类
+    super.die();
   }
 }

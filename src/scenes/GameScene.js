@@ -1,5 +1,7 @@
 /**
  * 主游戏场景
+ * 
+ * Superhot 重构：时间流逝系统 + 向量弹幕 + 擦弹机制
  */
 import { TILE_SIZE, MAP_CONFIG, COLORS } from '../config/gameConfig.js';
 import MapGenerator, { TileType } from '../systems/MapGenerator.js';
@@ -11,6 +13,14 @@ import EquipmentSystem from '../systems/EquipmentSystem.js';
 import SpellUpgradeSystem from '../systems/SpellUpgradeSystem.js';
 import ShrineDonateSystem from '../systems/ShrineDonateSystem.js';
 import AudioManager from '../systems/AudioManager.js';
+// Superhot 系统
+import TimeScaleManager, { TimeState } from '../systems/TimeScaleManager.js';
+import BulletManager from '../systems/BulletManager.js';
+import GrazeSystem from '../systems/GrazeSystem.js';
+import LastGaspSystem from '../systems/LastGaspSystem.js';
+import ScreenEffects from '../effects/ScreenEffects.js';
+import AudioEffects from '../effects/AudioEffects.js';
+
 import Player from '../entities/Player.js';
 import SlowFairy from '../entities/enemies/SlowFairy.js';
 import NormalFairy from '../entities/enemies/NormalFairy.js';
@@ -45,6 +55,15 @@ export default class GameScene extends Phaser.Scene {
     
     // 结界系统
     this.barriers = [];
+    
+    // ========== Superhot 系统 ==========
+    this.timeManager = null;      // 时间缩放管理器
+    this.bulletManager = null;    // 向量弹幕管理器
+    this.grazeSystem = null;      // 擦弹系统
+    this.lastGaspSystem = null;   // 决死时刻系统
+    this.screenEffects = null;    // 屏幕效果
+    this.audioEffects = null;     // 音频效果
+    // ===================================
     
     // 视角模式（不消耗行动）
     this.isFreeLookMode = false;
@@ -162,6 +181,25 @@ export default class GameScene extends Phaser.Scene {
   create() {
     AudioManager.init(this);
 
+    // ========== 初始化 Superhot 系统 ==========
+    // 时间缩放管理器
+    this.timeManager = new TimeScaleManager(this);
+    this.timeManager.init();
+    
+    // 向量弹幕管理器
+    this.bulletManager = new BulletManager(this);
+    this.bulletManager.init();
+    this.bulletManager.setTimeManager(this.timeManager);
+    
+    // 屏幕效果
+    this.screenEffects = new ScreenEffects(this);
+    this.screenEffects.init();
+    
+    // 音频效果
+    this.audioEffects = new AudioEffects(this);
+    this.audioEffects.init();
+    // ==========================================
+
     // 初始化系统
     this.actionQueue = new ActionQueue();
     this.spellCardSystem = new SpellCardSystem(this);
@@ -183,6 +221,14 @@ export default class GameScene extends Phaser.Scene {
     
     // 创建玩家
     this.createPlayer();
+    
+    // ========== 初始化擦弹和决死系统（需要玩家实例） ==========
+    this.grazeSystem = new GrazeSystem(this);
+    this.grazeSystem.init(this.player, this.bulletManager);
+    
+    this.lastGaspSystem = new LastGaspSystem(this);
+    this.lastGaspSystem.init(this.player, this.timeManager, this.bulletManager);
+    // =========================================================
     
     // 初始化天赋系统
     this.talentSystem = new TalentSystem(this, this.player);
@@ -871,6 +917,38 @@ export default class GameScene extends Phaser.Scene {
     if (this.player && this.player.sprite) {
       this.player.sprite.setVisible(true);
     }
+
+    // ========== 迷雾中的弹幕警告（半透明红色） ==========
+    // 弹幕始终可见，但在迷雾中为警告色
+    if (this.bulletManager && this.bulletManager.bullets) {
+      for (const bullet of this.bulletManager.bullets) {
+        if (!bullet || !bullet.active || !bullet.sprite) continue;
+        
+        // 计算弹幕所在格子
+        const bx = Math.floor(bullet.x / TILE_SIZE);
+        const by = Math.floor(bullet.y / TILE_SIZE);
+        
+        const isVis = visible && visible[by] ? !!visible[by][bx] : false;
+        const isExp = explored && explored[by] ? !!explored[by][bx] : false;
+        
+        if (isVis) {
+          // 完全可见
+          bullet.sprite.setVisible(true);
+          bullet.sprite.setAlpha(1);
+          bullet.sprite.clearTint();
+        } else if (isExp) {
+          // 已探索但不可见：半透明红色警告
+          bullet.sprite.setVisible(true);
+          bullet.sprite.setAlpha(0.6);
+          bullet.sprite.setTint(0xff4444);
+        } else {
+          // 未探索：暗红色提示（给予一点提示）
+          bullet.sprite.setVisible(true);
+          bullet.sprite.setAlpha(0.3);
+          bullet.sprite.setTint(0xff0000);
+        }
+      }
+    }
   }
 
   /**
@@ -1020,9 +1098,87 @@ export default class GameScene extends Phaser.Scene {
     this.menuKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
   }
 
-  update() {
+  update(time, delta) {
+    // ========== Superhot 系统更新 ==========
+    // 更新时间管理器（使用实际 delta）
+    if (this.timeManager) {
+      this.timeManager.update(delta);
+    }
+    
+    // 更新弹幕系统（使用实际 delta，内部会应用时间缩放）
+    if (this.bulletManager) {
+      this.bulletManager.update(delta);
+      
+      // 处理玩家子弹与敌人的碰撞
+      if (this.enemies && this.enemies.length > 0) {
+        const hits = this.bulletManager.checkEnemyCollision(this.enemies);
+        for (const { bullet, enemy } of hits) {
+          const damage = enemy.takeDamage(bullet.damage || 10);
+          
+          // 显示伤害数字
+          this.events.emit('showDamage', {
+            x: enemy.sprite.x,
+            y: enemy.sprite.y - 20,
+            damage: damage,
+            isHeal: false
+          });
+          
+          // 击杀效果
+          if (!enemy.isAlive) {
+            // 触发击杀时间冻结
+            if (this.timeManager) {
+              this.timeManager.triggerKillFreeze();
+            }
+            
+            // 给玩家经验
+            this.player.gainExp(enemy.expReward || 10);
+          }
+        }
+      }
+    }
+    
+    // 更新擦弹系统并检测碰撞
+    if (this.grazeSystem && this.player && this.player.isAlive) {
+      const result = this.grazeSystem.update(delta);
+      
+      // 处理弹幕命中
+      if (result && result.hit) {
+        // 尝试触发决死时刻
+        if (this.lastGaspSystem && !this.lastGaspSystem.isInvincible()) {
+          const triggered = this.lastGaspSystem.trigger(result.hit);
+          if (!triggered) {
+            // 无法触发决死，直接受伤
+            this.player.takeDamage(result.hit.damage || 10);
+            this.bulletManager.recycleBullet(result.hit);
+          }
+        }
+      }
+    }
+    
+    // 更新决死时刻系统
+    if (this.lastGaspSystem) {
+      this.lastGaspSystem.update(delta);
+    }
+    
+    // 更新屏幕效果
+    if (this.screenEffects) {
+      this.screenEffects.update(delta);
+    }
+    // ==========================================
+    
     if (this.isProcessingTurn) return;
     if (!this.player || !this.player.isAlive) return;
+    
+    // 决死时刻中只允许符卡输入
+    if (this.lastGaspSystem && this.lastGaspSystem.isInLastGasp()) {
+      // 检测符卡键
+      if (Phaser.Input.Keyboard.JustDown(this.spellKeys.Z) ||
+          Phaser.Input.Keyboard.JustDown(this.spellKeys.X) ||
+          Phaser.Input.Keyboard.JustDown(this.spellKeys.C)) {
+        this.lastGaspSystem.tryDodge();
+      }
+      return;
+    }
     
     // 处理自由视角模式
     if (this.handleFreeLookMode()) return;

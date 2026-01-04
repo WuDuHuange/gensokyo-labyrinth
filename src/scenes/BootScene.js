@@ -169,7 +169,7 @@ export default class BootScene extends Phaser.Scene {
     exitGraphics.generateTexture('exit', 32, 32);
     exitGraphics.destroy();
 
-    // 创建弹幕精灵
+    // 创建弹幕精灵（玩家用 - 红白色御札）
     const bulletGraphics = this.make.graphics({ x: 0, y: 0, add: false });
     bulletGraphics.fillStyle(0xff6b6b);
     bulletGraphics.fillCircle(8, 8, 6);
@@ -177,6 +177,17 @@ export default class BootScene extends Phaser.Scene {
     bulletGraphics.fillCircle(8, 8, 3);
     bulletGraphics.generateTexture('bullet', 16, 16);
     bulletGraphics.destroy();
+
+    // 创建玩家弹幕（御札 - 红白长方形）
+    const playerBulletGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    playerBulletGraphics.fillStyle(0xffffff);
+    playerBulletGraphics.fillRect(4, 2, 8, 12);
+    playerBulletGraphics.fillStyle(0xff4444);
+    playerBulletGraphics.fillRect(5, 3, 6, 10);
+    playerBulletGraphics.fillStyle(0xffffff);
+    playerBulletGraphics.fillRect(6, 4, 4, 3);
+    playerBulletGraphics.generateTexture('bullet_player', 16, 16);
+    playerBulletGraphics.destroy();
 
     // 创建敌人弹幕
     const enemyBulletGraphics = this.make.graphics({ x: 0, y: 0, add: false });

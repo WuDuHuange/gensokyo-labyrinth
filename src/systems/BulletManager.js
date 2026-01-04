@@ -64,6 +64,9 @@ export class Bullet {
     // 所属敌人（用于判定友军伤害）
     this.owner = config.owner || null;
     
+    // 是否为玩家子弹（用于区分碰撞检测）
+    this.isPlayerBullet = config.isPlayerBullet || false;
+    
     // 是否已被擦弹（防止重复计算）
     this.grazed = false;
     
@@ -279,6 +282,8 @@ export default class BulletManager {
         damage: config.damage || BULLET_CONFIG.DEFAULT_DAMAGE,
         pattern: config.pattern || BulletPattern.AIMED,
         owner: config.owner || null,
+        isPlayerBullet: config.isPlayerBullet || false, // 重要：标记是否为玩家子弹
+        texture: config.texture || 'enemyBullet',
         grazed: false,
         active: true,
         age: 0,

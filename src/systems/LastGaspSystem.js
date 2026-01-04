@@ -76,6 +76,14 @@ export default class LastGaspSystem {
     this.timer = LAST_GASP_CONFIG.REACTION_WINDOW;
     this.pendingBullet = bullet;
     
+    // 暂时停用触发弹幕（防止重复检测）
+    if (bullet) {
+      bullet.active = false;
+      if (bullet.sprite) {
+        bullet.sprite.setVisible(false);
+      }
+    }
+    
     // 通知时间管理器进入决死状态
     if (this.timeManager) {
       this.timeManager.triggerLastGasp((success) => {
@@ -96,6 +104,11 @@ export default class LastGaspSystem {
         timeRemaining: this.timer,
         bulletDamage: bullet ? bullet.damage : 0
       });
+    }
+    
+    // 显示提示消息
+    if (this.scene.events) {
+      this.scene.events.emit('showMessage', '【决死时刻】按 Z/X/C 躲避！');
     }
     
     return true;

@@ -196,13 +196,15 @@ export class TeleportTrap {
     
     // 传送动画
     const name = entity.name || '目标';
+    const originalScaleX = entity.sprite.scaleX;
+    const originalScaleY = entity.sprite.scaleY;
     
-    // 消失效果
+    // 消失效果（保留原始缩放，避免传送后变大/变形）
     this.scene.tweens.add({
       targets: entity.sprite,
       alpha: 0,
-      scaleX: 0.5,
-      scaleY: 0.5,
+      scaleX: originalScaleX * 0.5,
+      scaleY: originalScaleY * 0.5,
       duration: 200,
       onComplete: () => {
         // 移动到新位置
@@ -215,8 +217,8 @@ export class TeleportTrap {
         this.scene.tweens.add({
           targets: entity.sprite,
           alpha: 1,
-          scaleX: 1,
-          scaleY: 1,
+          scaleX: originalScaleX,
+          scaleY: originalScaleY,
           duration: 200
         });
       }

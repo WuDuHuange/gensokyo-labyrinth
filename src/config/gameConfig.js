@@ -160,10 +160,10 @@ export const COLORS = {
 export const ITEM_CONFIG = {
   potion_small: {
     id: 'potion_small',
-    name: '小瓶回复药',
+    name: '博丽御神水',
     type: 'consumable',
     sprite: 'potion',
-    description: '恢复 25 点生命值',
+    description: '从神社汲取的清水，恢复 25 点生命值',
     effect: {
       heal: 25
     }
@@ -171,27 +171,27 @@ export const ITEM_CONFIG = {
   ,
   gold_coin: {
     id: 'gold_coin',
-    name: '金币',
+    name: '赛钱',
     type: 'currency',
     sprite: 'coin',
-    description: '可以用于商店或特殊交互'
+    description: '博丽神社的赛钱，用于捐赠或交易'
   },
   herb: {
     id: 'herb',
-    name: '草药',
+    name: '魔法森药草',
     type: 'consumable',
     sprite: 'herb',
-    description: '恢复少量生命',
+    description: '来自魔法之森的药草，恢复少量生命',
     effect: {
       heal: 10
     }
   },
   talent_book: {
     id: 'talent_book',
-    name: '秘传书',
+    name: '秘传符札',
     type: 'consumable',
     sprite: 'book',
-    description: '使用后获得一个随机天赋',
+    description: '记载神社秘传的符术，使用后随机习得一项天赋',
     effect: {
       grantTalent: true
     }
@@ -199,45 +199,45 @@ export const ITEM_CONFIG = {
   // 装备类道具
   omamori_health: {
     id: 'omamori_health',
-    name: '健康御守',
+    name: '生命御守·博丽',
     type: 'equipment',
     sprite: 'omamori',
-    description: '装备后最大生命值 +30'
+    description: '博丽神社加持的御守，最大生命值 +30'
   },
   omamori_protection: {
     id: 'omamori_protection',
-    name: '守护御守',
+    name: '结界御守·博丽',
     type: 'equipment',
     sprite: 'omamori',
-    description: '装备后防御力 +8'
+    description: '博丽结界碎片制成，防御力 +8'
   },
   magatama_power: {
     id: 'magatama_power',
-    name: '力之勾玉',
+    name: '八坂勾玉·力',
     type: 'equipment',
     sprite: 'magatama',
-    description: '装备后攻击力 +10'
+    description: '传自守矢的勾玉，攻击力 +10'
   },
   magatama_spirit: {
     id: 'magatama_spirit',
-    name: '灵之勾玉',
+    name: '八坂勾玉·灵',
     type: 'equipment',
     sprite: 'magatama_blue',
-    description: '装备后灵力 +15，回复速度 +25%'
+    description: '勾玉蕴含神灵气，灵力 +15，回复速度 +25%'
   },
   ribbon_red: {
     id: 'ribbon_red',
-    name: '红色缎带',
+    name: '红白缎带',
     type: 'equipment',
     sprite: 'ribbon',
-    description: '装备后速度 +15'
+    description: '灵梦想做发饰的缎带，速度 +15'
   },
   chest_wood: {
     id: 'chest_wood',
-    name: '木箱',
+    name: '供奉木箱',
     type: 'container',
     sprite: 'chest',
-    description: '封存的木箱，打开可能获得物品',
+    description: '放在赛钱箱旁的木箱，打开可能获得物品',
     // contents: 可掉落的物品与权重
     contents: [
       { item: 'potion_small', weight: 45 },

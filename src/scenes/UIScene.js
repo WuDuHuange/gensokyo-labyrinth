@@ -166,6 +166,9 @@ export default class UIScene extends Phaser.Scene {
     
     // Boss 血条（初始隐藏）
     this.createBossUI();
+    
+    // 操作提示面板（左下角）
+    this.createControlHints();
   }
   
   /**
@@ -964,6 +967,92 @@ export default class UIScene extends Phaser.Scene {
     }
 
     this.messages = [];
+  }
+
+  /**
+   * 创建操作提示面板（SUPERHOT 风格）
+   */
+  createControlHints() {
+    const padding = 10;
+    const panelWidth = 200;
+    const panelHeight = 220;
+    const panelX = padding;
+    const panelY = 200; // 在主HUD下方
+    
+    // 背景面板
+    const hintBg = this.add.graphics();
+    hintBg.fillStyle(0x0a0a12, 0.7);
+    hintBg.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 8);
+    hintBg.lineStyle(1, 0x3a3a5a, 0.5);
+    hintBg.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 8);
+    
+    // 标题
+    this.add.text(panelX + panelWidth / 2, panelY + 10, '◆ 操作指南 ◆', {
+      fontSize: '11px',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+      color: '#e94560'
+    }).setOrigin(0.5, 0);
+    
+    // 操作提示内容
+    const hints = [
+      { key: 'WASD/方向键', desc: '移动(时间流动)' },
+      { key: 'SPACE', desc: '等待/原地狙击' },
+      { key: 'Q+方向', desc: '转向(不动)' },
+      { key: 'Z/X/C', desc: '释放符卡' },
+      { key: 'TAB', desc: '自由视角' },
+      { key: 'R', desc: '回神社/返回' },
+      { key: 'ESC', desc: '暂停菜单' },
+    ];
+    
+    const startY = panelY + 32;
+    const lineHeight = 22;
+    
+    hints.forEach((hint, i) => {
+      // 按键
+      this.add.text(panelX + 12, startY + i * lineHeight, hint.key, {
+        fontSize: '10px',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        color: '#6b9fff'
+      });
+      
+      // 描述
+      this.add.text(panelX + panelWidth - 12, startY + i * lineHeight, hint.desc, {
+        fontSize: '10px',
+        fontFamily: 'Arial',
+        color: '#aaaaaa'
+      }).setOrigin(1, 0);
+    });
+    
+    // 分隔线
+    const sepY = startY + hints.length * lineHeight + 4;
+    this.add.graphics()
+      .lineStyle(1, 0x3a3a5a, 0.4)
+      .lineBetween(panelX + 12, sepY, panelX + panelWidth - 12, sepY);
+    
+    // SUPERHOT 特色提示
+    const tipsY = sepY + 10;
+    this.add.text(panelX + panelWidth / 2, tipsY, '⚡ SUPERHOT 机制 ⚡', {
+      fontSize: '9px',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+      color: '#ffaa44'
+    }).setOrigin(0.5, 0);
+    
+    const superhotTips = [
+      '• 时间随你的移动流逝',
+      '• 擦弹恢复 MP',
+      '• 濒死时触发【决死时刻】'
+    ];
+    
+    superhotTips.forEach((tip, i) => {
+      this.add.text(panelX + 12, tipsY + 16 + i * 14, tip, {
+        fontSize: '9px',
+        fontFamily: 'Arial',
+        color: '#888899'
+      });
+    });
   }
 
   updateHPBar(current, max) {

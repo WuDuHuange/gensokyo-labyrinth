@@ -622,10 +622,24 @@ export default class Player extends Entity {
   }
 
   /**
-   * 等待（跳过回合）
+   * 等待（跳过回合） - 改为狙击模式：原地射击
    */
   wait() {
-    this.scene.events.emit('showMessage', '灵梦原地待命...');
+    // 通知时间管理器开始狙击
+    if (this.scene.timeManager) {
+      this.scene.timeManager.startSnipe();
+    }
+    
+    // 狙击射击：双倍射速
+    this.autoFire();
+    this.autoFire();
+    
+    // 通知时间管理器结束狙击
+    if (this.scene.timeManager) {
+      this.scene.timeManager.endSnipe();
+    }
+    
+    this.scene.events.emit('showMessage', '灵梦原地狙击！');
   }
 
   /**

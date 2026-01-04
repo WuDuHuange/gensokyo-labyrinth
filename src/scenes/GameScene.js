@@ -1130,8 +1130,8 @@ export default class GameScene extends Phaser.Scene {
               this.timeManager.triggerKillFreeze();
             }
             
-            // 给玩家经验
-            this.player.gainExp(enemy.expReward || 10);
+            // 移除敌人（内部会处理经验、掉落等）
+            this.removeEnemy(enemy);
           }
         }
       }
@@ -1141,35 +1141,34 @@ export default class GameScene extends Phaser.Scene {
     if (this.grazeSystem && this.player && this.player.isAlive) {
       const result = this.grazeSystem.update(delta);
       
-      // 处理弹幕命中
+      // 处理弹幕命中玩家
       if (result && result.hit) {
         const bullet = result.hit;
-        // DEBUG: 输出命中弹幕信息
-        console.log('[DEBUG] 弹幕命中!', {
-          isPlayerBullet: bullet.isPlayerBullet,
-          owner: bullet.owner,
-          texture: bullet.texture,
-          x: bullet.x,
-          y: bullet.y,
-          playerX: this.player.sprite.x,
-          playerY: this.player.sprite.y
-        });
         
         // 跳过玩家自己的子弹（双重检查）
         if (bullet.isPlayerBullet) {
-          console.log('[DEBUG] 跳过玩家子弹');
           this.bulletManager.recycleBullet(bullet);
           return;
         }
         
-        // 尝试触发决死时刻
-        if (this.lastGaspSystem && !this.lastGaspSystem.isInvincible()) {
-          const triggered = this.lastGaspSystem.trigger(result.hit);
+        const bulletDamage = bullet.damage || 10;
+        
+        // 检查是否会导致濒死（HP将归零）
+        const willDie = this.player.hp - bulletDamage <= 0;
+        
+        if (willDie && this.lastGaspSystem && !this.lastGaspSystem.isInvincible() && !this.lastGaspSystem.isActive) {
+          // 濒死状态，尝试触发决死时刻
+          const triggered = this.lastGaspSystem.trigger(bullet);
           if (!triggered) {
-            // 无法触发决死，直接受伤
-            this.player.takeDamage(result.hit.damage || 10);
-            this.bulletManager.recycleBullet(result.hit);
+            // 无法触发决死（MP不足等），直接死亡
+            this.player.takeDamage(bulletDamage);
+            this.bulletManager.recycleBullet(bullet);
           }
+          // 如果触发成功，弹幕已在 trigger 中被停用
+        } else if (!this.lastGaspSystem || !this.lastGaspSystem.isInvincible()) {
+          // 不是濒死，直接受伤
+          this.player.takeDamage(bulletDamage);
+          this.bulletManager.recycleBullet(bullet);
         }
       }
     }

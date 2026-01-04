@@ -150,8 +150,8 @@ export default class ScreenEffects {
       // this.scene.cameras.main.clearTint();
     } catch (e) {}
     
-    // 短暂过曝效果
-    this.flashBright(50);
+    // 注：移除每次行动的闪屏，太频繁会干扰游戏
+    // this.flashBright(50);
   }
   
   /**

@@ -1143,6 +1143,25 @@ export default class GameScene extends Phaser.Scene {
       
       // 处理弹幕命中
       if (result && result.hit) {
+        const bullet = result.hit;
+        // DEBUG: 输出命中弹幕信息
+        console.log('[DEBUG] 弹幕命中!', {
+          isPlayerBullet: bullet.isPlayerBullet,
+          owner: bullet.owner,
+          texture: bullet.texture,
+          x: bullet.x,
+          y: bullet.y,
+          playerX: this.player.sprite.x,
+          playerY: this.player.sprite.y
+        });
+        
+        // 跳过玩家自己的子弹（双重检查）
+        if (bullet.isPlayerBullet) {
+          console.log('[DEBUG] 跳过玩家子弹');
+          this.bulletManager.recycleBullet(bullet);
+          return;
+        }
+        
         // 尝试触发决死时刻
         if (this.lastGaspSystem && !this.lastGaspSystem.isInvincible()) {
           const triggered = this.lastGaspSystem.trigger(result.hit);

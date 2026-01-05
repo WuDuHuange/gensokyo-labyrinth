@@ -996,9 +996,8 @@ export default class UIScene extends Phaser.Scene {
     
     // 操作提示内容
     const hints = [
-      { key: 'WASD/方向键', desc: '移动(时间流动)' },
+      { key: 'WASD/方向键', desc: '自由移动(松开停止)' },
       { key: 'F', desc: '原地狙击' },
-      { key: 'Q+方向', desc: '转向(不动)' },
       { key: 'Z/X/C', desc: '释放符卡' },
       { key: 'TAB', desc: '自由视角' },
       { key: 'R', desc: '回神社/返回' },

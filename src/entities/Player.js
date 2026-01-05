@@ -47,6 +47,11 @@ export default class Player extends Entity {
     this.fireCooldown = 0;
     this.fireInterval = 320;      // 普通移动时的射击间隔(ms)
     this.snipeInterval = 180;     // 狙击时的射击间隔(ms)
+
+    // ========== 自由移动系统 ==========
+    this.moveSpeed = 160;         // 像素/秒 移动速度
+    this.velocity = { x: 0, y: 0 }; // 当前速度向量
+    this.isMovingFree = false;    // 是否正在自由移动
   }
 
   /**
@@ -115,7 +120,159 @@ export default class Player extends Entity {
   }
 
   /**
-   * 移动玩家（Superhot 重构：自动射击 + 瞬步撞击）
+   * 开始自由移动（按住方向键时调用）
+   * @param {number} dx - X方向 (-1, 0, 1)
+   * @param {number} dy - Y方向 (-1, 0, 1)
+   */
+  startFreeMove(dx, dy) {
+    if (dx === 0 && dy === 0) {
+      this.stopFreeMove();
+      return;
+    }
+
+    // 更新朝向
+    this.facing = { x: dx, y: dy };
+
+    // 归一化斜向移动速度
+    const length = Math.sqrt(dx * dx + dy * dy);
+    this.velocity.x = (dx / length) * this.moveSpeed;
+    this.velocity.y = (dy / length) * this.moveSpeed;
+    this.isMovingFree = true;
+
+    // 通知时间管理器开始行动（持续移动期间保持 ACTION 状态）
+    if (this.scene.timeManager && !this._freeMovingAction) {
+      this.scene.timeManager.startAction();
+      this._freeMovingAction = true;
+    }
+  }
+
+  /**
+   * 停止自由移动（松开方向键时调用）
+   */
+  stopFreeMove() {
+    this.velocity.x = 0;
+    this.velocity.y = 0;
+    this.isMovingFree = false;
+
+    // 通知时间管理器结束行动
+    if (this.scene.timeManager && this._freeMovingAction) {
+      this.scene.timeManager.endAction();
+      this._freeMovingAction = false;
+    }
+  }
+
+  /**
+   * 自由移动更新（每帧调用）
+   * @param {number} delta - 帧间隔(ms)
+   */
+  updateFreeMove(delta) {
+    if (!this.isMovingFree) return;
+    if (!this.isAlive) return;
+
+    const dt = delta / 1000; // 转换为秒
+    
+    // 计算新位置
+    let newPixelX = this.pixelX + this.velocity.x * dt;
+    let newPixelY = this.pixelY + this.velocity.y * dt;
+
+    // 碰撞检测：检查新位置对应的 tile 是否可通行
+    const newTileX = Math.floor(newPixelX / TILE_SIZE);
+    const newTileY = Math.floor(newPixelY / TILE_SIZE);
+
+    // 检查水平方向碰撞
+    const testTileX = Math.floor((this.pixelX + this.velocity.x * dt) / TILE_SIZE);
+    if (!this.scene.canMoveTo(testTileX, this.tileY)) {
+      // 水平方向撞墙，停止水平移动
+      newPixelX = this.pixelX;
+      // 尝试开门
+      this.tryOpenDoorAt(testTileX, this.tileY);
+    }
+
+    // 检查垂直方向碰撞
+    const testTileY = Math.floor((this.pixelY + this.velocity.y * dt) / TILE_SIZE);
+    if (!this.scene.canMoveTo(this.tileX, testTileY)) {
+      // 垂直方向撞墙，停止垂直移动
+      newPixelY = this.pixelY;
+      // 尝试开门
+      this.tryOpenDoorAt(this.tileX, testTileY);
+    }
+
+    // 检查对角碰撞
+    const finalTileX = Math.floor(newPixelX / TILE_SIZE);
+    const finalTileY = Math.floor(newPixelY / TILE_SIZE);
+    if (!this.scene.canMoveTo(finalTileX, finalTileY)) {
+      // 对角方向不可通行，保持原位置
+      if (this.scene.canMoveTo(finalTileX, this.tileY)) {
+        newPixelY = this.pixelY; // 只允许水平移动
+      } else if (this.scene.canMoveTo(this.tileX, finalTileY)) {
+        newPixelX = this.pixelX; // 只允许垂直移动
+      } else {
+        newPixelX = this.pixelX;
+        newPixelY = this.pixelY;
+      }
+    }
+
+    // 检查是否碰到敌人（瞬步撞击）
+    const enemyAtPos = this.scene.getEnemyAtPixel ? 
+      this.scene.getEnemyAtPixel(newPixelX, newPixelY) :
+      this.scene.getEnemyAt(Math.floor(newPixelX / TILE_SIZE), Math.floor(newPixelY / TILE_SIZE));
+    
+    if (enemyAtPos) {
+      // 撞击敌人
+      const dx = this.facing.x;
+      const dy = this.facing.y;
+      this.dashBash(enemyAtPos, dx, dy);
+      return;
+    }
+
+    // 更新位置
+    this.pixelX = newPixelX;
+    this.pixelY = newPixelY;
+    this.sprite.setPosition(this.pixelX, this.pixelY);
+
+    // 更新 tile 坐标
+    const oldTileX = this.tileX;
+    const oldTileY = this.tileY;
+    this.tileX = Math.floor(this.pixelX / TILE_SIZE);
+    this.tileY = Math.floor(this.pixelY / TILE_SIZE);
+
+    // 如果 tile 改变了，触发相关检查
+    if (oldTileX !== this.tileX || oldTileY !== this.tileY) {
+      // 更新迷雾
+      if (this.scene.fog) {
+        this.scene.fog.setBlockers(this.scene.getVisionBlockers());
+        this.scene.fog.compute(this.scene.mapData.tiles, this.tileX, this.tileY);
+        this.scene.updateFogVisuals();
+      }
+      // 检查出口
+      this.scene.checkExit();
+      // 检查陷阱
+      try { this.scene.checkTraps(this); } catch (e) {}
+      // 检查 Boss 房
+      try { this.scene.checkEnterBossRoom(); } catch (e) {}
+      // 检查战斗房
+      try { this.scene.checkEnterCombatRoom(); } catch (e) {}
+    }
+  }
+
+  /**
+   * 尝试打开指定位置的门
+   */
+  tryOpenDoorAt(tileX, tileY) {
+    try {
+      const door = this.scene.getDoorAt(tileX, tileY);
+      if (door && !door.isOpen) {
+        if (door.locked) {
+          this.scene.events.emit('showMessage', '这扇门被锁住了！');
+        } else {
+          door.openByTouch();
+        }
+      }
+    } catch (e) {}
+  }
+
+  /**
+   * 旧版格子移动（保留用于兼容某些特殊情况如瞬步穿透）
    * @param {number} dx - X方向偏移
    * @param {number} dy - Y方向偏移
    * @returns {Promise<boolean>} 是否成功移动
@@ -131,26 +288,13 @@ export default class Player extends Entity {
 
     // 检查是否可以移动
     if (!this.scene.canMoveTo(newX, newY)) {
-      // 若被门阻挡，触碰开启门（消耗行动）
-      try {
-        const door = this.scene.getDoorAt(newX, newY);
-        if (door && !door.isOpen) {
-          // 如果门是锁定的，不消耗行动
-          if (door.locked) {
-            this.scene.events.emit('showMessage', '这扇门被锁住了！');
-            return false; // 不消耗行动
-          }
-          try { door.openByTouch(); } catch (e) {}
-          return true; // 消耗一次行动但不移动
-        }
-      } catch (e) {}
+      this.tryOpenDoorAt(newX, newY);
       return false;
     }
 
     // 检查是否有敌人（瞬步撞击）
     const enemy = this.scene.getEnemyAt(newX, newY);
     if (enemy) {
-      // 瞬步撞击
       await this.dashBash(enemy, dx, dy);
       return true;
     }

@@ -1184,6 +1184,32 @@ export default class GameScene extends Phaser.Scene {
       this.screenEffects.update(delta);
     }
 
+    // ========== 自由移动系统更新 ==========
+    if (this.player && this.player.isAlive) {
+      // 检测方向键按住状态
+      const upDown = this.cursors.up.isDown || this.wasd.W.isDown;
+      const downDown = this.cursors.down.isDown || this.wasd.S.isDown;
+      const leftDown = this.cursors.left.isDown || this.wasd.A.isDown;
+      const rightDown = this.cursors.right.isDown || this.wasd.D.isDown;
+
+      let dx = 0, dy = 0;
+      if (upDown && !downDown) dy = -1;
+      else if (downDown && !upDown) dy = 1;
+      if (leftDown && !rightDown) dx = -1;
+      else if (rightDown && !leftDown) dx = 1;
+
+      // 如果有方向输入，开始/更新自由移动
+      if (dx !== 0 || dy !== 0) {
+        this.player.startFreeMove(dx, dy);
+      } else {
+        // 松开所有方向键，停止移动
+        this.player.stopFreeMove();
+      }
+
+      // 更新自由移动（每帧）
+      this.player.updateFreeMove(delta);
+    }
+
     // 基于时间缩放的自动射击节奏
     const scaledDelta = this.timeManager ? this.timeManager.getScaledDelta(delta) : delta;
     if (this.player && this.player.isAlive && this.timeManager) {
@@ -1195,7 +1221,6 @@ export default class GameScene extends Phaser.Scene {
     }
     // ==========================================
     
-    if (this.isProcessingTurn) return;
     if (!this.player || !this.player.isAlive) return;
     
     // 决死时刻中只允许符卡输入
@@ -1252,28 +1277,17 @@ export default class GameScene extends Phaser.Scene {
       this.destroyAimArrow();
     }
     
-    // 获取当前行动者
+    // 处理符卡等即时输入（移动已在上面处理）
+    this.handlePlayerInput();
+    
+    // 敌人行动（使用 actionQueue 驱动）
     const actor = this.actionQueue.tick();
-    
-    if (!actor) return;
-    
-    if (actor.isPlayer) {
-      // 玩家回合 - 先处理快捷按键/按下触发的即时操作
-      const acted = this.handlePlayerInput();
-
-      // 如果本帧没有产生其他行动，并且存在按住的方向，则自动移动（连续行走）
-      // 但当处于转向（Q）模式时不要自动移动
-      if (!acted && !this.isProcessingTurn && this.heldMove && !this.turnKey.isDown) {
-        this.processPlayerMove(this.heldMove.x, this.heldMove.y);
-      }
-    } else {
-      // 敌人回合 - 并行处理所有可行动的敌人（以减少串行等待）
+    if (actor && !actor.isPlayer && actor.isAlive) {
+      // 敌人回合 - 并行处理所有可行动的敌人
       const actionable = this.actionQueue.getActionableEntities().filter(e => !e.isPlayer && e.isAlive);
       if (actionable.length <= 1) {
-        // 只有一个敌人可行动，保持原有行为
         this.processEnemyTurn(actor);
       } else {
-        // 批量并行执行敌人行为（不改变各自内部的伤害/死亡逻辑）
         this.processEnemyBatch(actionable);
       }
     }
@@ -1343,60 +1357,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * 处理玩家输入
+   * 处理玩家输入（符卡、狙击等非移动操作）
+   * 移动已改为自由移动，在 update 中直接处理
    */
-  // 返回值：若本次输入触发了行动（移动/使用符卡/等待等）则返回 true
   handlePlayerInput() {
-    let dx = 0;
-    let dy = 0;
     let acted = false;
-    
-    // 检测是否按住Q键（转向模式，不消耗行动）
-    const isTurnMode = this.turnKey.isDown;
-    
-    // 八向移动输入 - 支持按下持续（isDown）与即时触发（JustDown）
-    const upDown = this.cursors.up.isDown || this.wasd.W.isDown;
-    const downDown = this.cursors.down.isDown || this.wasd.S.isDown;
-    const leftDown = this.cursors.left.isDown || this.wasd.A.isDown;
-    const rightDown = this.cursors.right.isDown || this.wasd.D.isDown;
-
-    const upPressed = Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.W);
-    const downPressed = Phaser.Input.Keyboard.JustDown(this.cursors.down) || Phaser.Input.Keyboard.JustDown(this.wasd.S);
-    const leftPressed = Phaser.Input.Keyboard.JustDown(this.cursors.left) || Phaser.Input.Keyboard.JustDown(this.wasd.A);
-    const rightPressed = Phaser.Input.Keyboard.JustDown(this.cursors.right) || Phaser.Input.Keyboard.JustDown(this.wasd.D);
-    
-    // 计算方向
-    // 优先使用即时触发（JustDown）来获得响应性
-    if (upPressed) dy = -1;
-    else if (downPressed) dy = 1;
-    if (leftPressed) dx = -1;
-    else if (rightPressed) dx = 1;
-
-    // 若没有即时按下但存在按住（长按），将 heldMove 设置为持续方向（但不立即执行移动）
-    if (!upPressed && !downPressed && !leftPressed && !rightPressed) {
-      if (upDown || downDown || leftDown || rightDown) {
-        const holdDx = leftDown ? -1 : (rightDown ? 1 : 0);
-        const holdDy = upDown ? -1 : (downDown ? 1 : 0);
-        // 仅在非转向模式时记录 heldMove，转向模式应只改变朝向而不移动
-        if (!isTurnMode) {
-          this.heldMove = (holdDx !== 0 || holdDy !== 0) ? { x: holdDx, y: holdDy } : null;
-        } else {
-          this.heldMove = null;
-        }
-      } else {
-        this.heldMove = null;
-      }
-    } else {
-      // 有即时按键触发，清除 heldMove（按下瞬间优先立即移动）
-      this.heldMove = null;
-    }
-    
-    // 如果是转向模式（按住Q），只转向不移动
-    if (isTurnMode && (dx !== 0 || dy !== 0)) {
-      this.player.setFacing(dx, dy);
-      this.events.emit('showMessage', `转向: ${this.getDirectionName(dx, dy)}`);
-      return false; // 不消耗行动
-    }
     
     // 符卡输入
     if (Phaser.Input.Keyboard.JustDown(this.spellKeys.Z)) {
@@ -1407,18 +1372,13 @@ export default class GameScene extends Phaser.Scene {
       if (this.player.useSpellCard(2)) acted = true;
     }
     
-    // 等待（支持按住空格连续跳过回合）
+    // 原地狙击（F键）
     if (Phaser.Input.Keyboard.JustDown(this.snipeKey)) {
       this.player.wait();
       acted = true;
-      this.heldMove = null;
     }
-    
-    // 移动（即时按键触发）
-    if (dx !== 0 || dy !== 0) {
-      this.processPlayerMove(dx, dy);
-      acted = true;
-    } else if (acted) {
+
+    if (acted) {
       this.endPlayerTurn();
     }
 
@@ -1938,6 +1898,23 @@ export default class GameScene extends Phaser.Scene {
    */
   getEnemyAt(x, y) {
     return this.enemies.find(e => e.isAlive && e.tileX === x && e.tileY === y);
+  }
+
+  /**
+   * 获取指定像素位置的敌人（用于自由移动碰撞检测）
+   */
+  getEnemyAtPixel(pixelX, pixelY) {
+    const checkRadius = TILE_SIZE * 0.4; // 碰撞半径
+    for (const enemy of this.enemies) {
+      if (!enemy.isAlive) continue;
+      const dx = pixelX - enemy.pixelX;
+      const dy = pixelY - enemy.pixelY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < checkRadius + enemy.hitboxRadius) {
+        return enemy;
+      }
+    }
+    return null;
   }
 
   /**

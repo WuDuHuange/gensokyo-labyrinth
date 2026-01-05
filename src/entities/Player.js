@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 玩家类 - 博丽灵梦
  */
 import Entity from './Entity.js';
@@ -13,27 +13,27 @@ export default class Player extends Entity {
       defense: PLAYER_CONFIG.defense,
       speed: PLAYER_CONFIG.speed
     });
-    
+
     this.isPlayer = true;
-    
+
     // 基础属性（用于天赋系统加成计算）
     this.baseMaxHp = PLAYER_CONFIG.maxHp;
     this.baseMaxMp = PLAYER_CONFIG.maxMp;
     this.baseSpeed = PLAYER_CONFIG.speed;
     this.baseAttack = PLAYER_CONFIG.attack;
     this.baseDefense = PLAYER_CONFIG.defense;
-    
+
     // 灵力值（MP）
     this.maxMp = PLAYER_CONFIG.maxMp;
     this.mp = this.maxMp;
     this.mpRegen = PLAYER_CONFIG.mpRegen;
-    
+
     // 朝向（用于符卡释放）
     this.facing = { x: 0, y: 1 }; // 默认朝下
-    
+
     // 符卡系统引用（由GameScene设置）
     this.spellCardSystem = null;
-    
+
     // 天赋系统引用（由GameScene设置）
     this.talentSystem = null;
 
@@ -42,6 +42,11 @@ export default class Player extends Entity {
 
     // 背包（道具 id 列表）
     this.inventory = [];
+
+    // 射击节奏（时间缩放友好）
+    this.fireCooldown = 0;
+    this.fireInterval = 320;      // 普通移动时的射击间隔(ms)
+    this.snipeInterval = 180;     // 狙击时的射击间隔(ms)
   }
 
   /**
@@ -63,7 +68,7 @@ export default class Player extends Entity {
 
   /**
    * 设置符卡系统
-   * @param {SpellCardSystem} system 
+   * @param {SpellCardSystem} system
    */
   setSpellCardSystem(system) {
     this.spellCardSystem = system;
@@ -71,14 +76,14 @@ export default class Player extends Entity {
 
   /**
    * 受到伤害（重写以应用天赋防御加成）
-   * @param {number} damage 
+   * @param {number} damage
    * @returns {number} 实际受到的伤害
    */
   takeDamage(damage) {
     const effectiveDefense = this.getEffectiveDefense();
     const actualDamage = Math.max(1, damage - effectiveDefense);
     this.hp -= actualDamage;
-    
+
     // 受击视觉效果
     this.scene.tweens.add({
       targets: this.sprite,
@@ -89,19 +94,19 @@ export default class Player extends Entity {
         this.sprite.clearTint();
       }
     });
-    
+
     if (this.hp <= 0) {
       this.hp = 0;
       this.die();
     }
-    
+
     return actualDamage;
   }
 
   /**
    * 设置朝向（不消耗行动）
-   * @param {number} dx 
-   * @param {number} dy 
+   * @param {number} dx
+   * @param {number} dy
    */
   setFacing(dx, dy) {
     if (dx !== 0 || dy !== 0) {
@@ -118,12 +123,12 @@ export default class Player extends Entity {
   async move(dx, dy) {
     const newX = this.tileX + dx;
     const newY = this.tileY + dy;
-    
+
     // 更新朝向
     if (dx !== 0 || dy !== 0) {
       this.facing = { x: dx, y: dy };
     }
-    
+
     // 检查是否可以移动
     if (!this.scene.canMoveTo(newX, newY)) {
       // 若被门阻挡，触碰开启门（消耗行动）
@@ -141,7 +146,7 @@ export default class Player extends Entity {
       } catch (e) {}
       return false;
     }
-    
+
     // 检查是否有敌人（瞬步撞击）
     const enemy = this.scene.getEnemyAt(newX, newY);
     if (enemy) {
@@ -149,29 +154,26 @@ export default class Player extends Entity {
       await this.dashBash(enemy, dx, dy);
       return true;
     }
-    
+
     // 通知时间管理器开始行动
     if (this.scene.timeManager) {
       this.scene.timeManager.startAction();
     }
-    
+
     // 平滑移动
     await this.moveTo(newX, newY);
-    
-    // 自动射击：移动时自动朝最近敌人发射
-    this.autoFire();
-    
+
     // 通知时间管理器结束行动
     if (this.scene.timeManager) {
       this.scene.timeManager.endAction();
     }
-    
+
     // 检查是否到达出口
     this.scene.checkExit();
-    
+
     return true;
   }
-  
+
   /**
    * 瞬步撞击（Dash Bash）
    * 高风险高回报：能秒杀则无敌穿透，否则受到反击
@@ -179,26 +181,26 @@ export default class Player extends Entity {
   async dashBash(enemy, dx, dy) {
     const attackValue = this.getEffectiveAttack();
     const dashDamage = Math.floor(attackValue * 2.0); // 瞬步伤害倍率
-    
+
     // 判断是否能秒杀
     const canKill = enemy.hp <= dashDamage;
-    
+
     // 通知时间管理器开始行动
     if (this.scene.timeManager) {
       this.scene.timeManager.startAction();
     }
-    
+
     // 瞬步动画：化作光冲向敌人
     const startX = this.sprite.x;
     const startY = this.sprite.y;
     const targetX = enemy.sprite.x;
     const targetY = enemy.sprite.y;
-    
+
     // 残影效果
     if (this.scene.screenEffects) {
       this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 300);
     }
-    
+
     // 冲刺动画
     await new Promise(resolve => {
       this.scene.tweens.add({
@@ -210,10 +212,10 @@ export default class Player extends Entity {
         onComplete: resolve
       });
     });
-    
+
     // 造成伤害
     const damage = enemy.takeDamage(dashDamage);
-    
+
     // 显示伤害数字
     this.scene.events.emit('showDamage', {
       x: enemy.sprite.x,
@@ -222,16 +224,16 @@ export default class Player extends Entity {
       isHeal: false,
       isCrit: true // 瞬步总是显示为暴击样式
     });
-    
+
     if (canKill) {
       // 秒杀：无敌穿透
       this.scene.events.emit('showMessage', `瞬步突破！击败了 ${enemy.name}！`);
       this.scene.removeEnemy(enemy);
-      
+
       // 穿透到敌人后方
       const behindX = this.tileX + dx * 2;
       const behindY = this.tileY + dy * 2;
-      
+
       if (this.scene.canMoveTo(behindX, behindY)) {
         await this.moveTo(behindX, behindY);
       } else {
@@ -242,9 +244,9 @@ export default class Player extends Entity {
       // 未能秒杀：受到反击
       const counterDamage = Math.floor(enemy.attack * 0.5);
       this.takeDamage(counterDamage);
-      
-      this.scene.events.emit('showMessage', `瞬步被挡！${enemy.name} 反击造成 ${counterDamage} 伤害！`);
-      
+
+      this.scene.events.emit('showMessage', `瞬步被挡！反击造成 ${counterDamage} 伤害！`);
+
       // 弹回原位
       await new Promise(resolve => {
         this.scene.tweens.add({
@@ -256,23 +258,23 @@ export default class Player extends Entity {
         });
       });
     }
-    
+
     // 通知时间管理器结束行动
     if (this.scene.timeManager) {
       this.scene.timeManager.endAction();
     }
   }
-  
+
   /**
    * 自动射击（移动时自动发射）
    */
   autoFire() {
     if (!this.scene.bulletManager) return;
-    
+
     // 找到最近的敌人
     let nearestEnemy = null;
     let nearestDist = Infinity;
-    
+
     for (const enemy of this.scene.enemies) {
       if (!enemy.isAlive) continue;
       const dist = this.getDistanceTo(enemy);
@@ -281,7 +283,7 @@ export default class Player extends Entity {
         nearestEnemy = enemy;
       }
     }
-    
+
     // 发射方向
     let targetX, targetY;
     if (nearestEnemy) {
@@ -292,9 +294,9 @@ export default class Player extends Entity {
       targetX = this.pixelX + this.facing.x * 100;
       targetY = this.pixelY + this.facing.y * 100;
     }
-    
+
     // 发射御札
-    const bullet = this.scene.bulletManager.fireAimed(
+    this.scene.bulletManager.fireAimed(
       this.pixelX,
       this.pixelY,
       targetX,
@@ -306,7 +308,7 @@ export default class Player extends Entity {
         isPlayerBullet: true
       }
     );
-    
+
     // 播放射击音效
     try {
       if (this.scene.sound) {
@@ -314,7 +316,7 @@ export default class Player extends Entity {
       }
     } catch (e) {}
   }
-  
+
   /**
    * 原地狙击（按住等待键时持续射击）
    */
@@ -323,12 +325,12 @@ export default class Player extends Entity {
     if (this.scene.timeManager) {
       this.scene.timeManager.startSnipe();
     }
-    
-    // 射速加倍（连续调用 autoFire）
-    this.autoFire();
+
+    // 聚焦射击：重置冷却并立即开火
+    this.resetFireCooldown();
     this.autoFire();
   }
-  
+
   /**
    * 结束狙击模式
    */
@@ -336,6 +338,26 @@ export default class Player extends Entity {
     if (this.scene.timeManager) {
       this.scene.timeManager.endSnipe();
     }
+  }
+
+  /**
+   * 依据时间流逝的射击节奏（不再按每步必射）
+   * @param {number} scaledDelta - 经过时间缩放后的 delta(ms)
+   * @param {boolean} isSnipe - 是否处于狙击模式
+   */
+  updateFireTimer(scaledDelta, isSnipe = false) {
+    this.fireCooldown -= scaledDelta;
+    if (this.fireCooldown <= 0) {
+      this.fireCooldown = isSnipe ? this.snipeInterval : this.fireInterval;
+      this.autoFire();
+    }
+  }
+
+  /**
+   * 重置射击冷却（用于进入狙击或需要立即开火时）
+   */
+  resetFireCooldown() {
+    this.fireCooldown = 0;
   }
 
   /**
@@ -353,7 +375,7 @@ export default class Player extends Entity {
     }
     return value;
   }
-  
+
   /**
    * 获取经天赋和装备加成后的实际防御力
    */
@@ -369,7 +391,7 @@ export default class Player extends Entity {
     }
     return value;
   }
-  
+
   /**
    * 获取综合暴击率
    */
@@ -386,9 +408,15 @@ export default class Player extends Entity {
 
   /**
    * 攻击敌人
-   * @param {Enemy} enemy 
+   * @param {Enemy} enemy
    */
   async attackEnemy(enemy) {
+    let startedAction = false;
+    if (this.scene.timeManager) {
+      this.scene.timeManager.startAction();
+      startedAction = true;
+    }
+
     // 检查是否试图攻击Boss房内的Boss但玩家不在Boss房内
     try {
       if (enemy.isBoss && this.scene.bossRoom && !this.scene.bossRoomLocked) {
@@ -397,15 +425,18 @@ export default class Player extends Entity {
         const playerInside = (px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height);
         if (!playerInside) {
           this.scene.events.emit('showMessage', '需要进入房间才能攻击首领！');
+          if (startedAction && this.scene.timeManager) {
+            this.scene.timeManager.endAction();
+          }
           return;
         }
       }
     } catch (e) {}
-    
+
     // 攻击动画 - 向敌人方向冲刺
     const dx = enemy.tileX - this.tileX;
     const dy = enemy.tileY - this.tileY;
-    
+
     await new Promise(resolve => {
       this.scene.tweens.add({
         targets: this.sprite,
@@ -416,7 +447,7 @@ export default class Player extends Entity {
         onComplete: resolve
       });
     });
-    
+
     // 计算伤害（应用天赋+装备加成和暴击）
     let attackValue = this.getEffectiveAttack();
     let isCrit = false;
@@ -425,9 +456,9 @@ export default class Player extends Entity {
       attackValue = Math.floor(attackValue * 1.5);
       isCrit = true;
     }
-    
+
     const damage = enemy.takeDamage(attackValue);
-    
+
     // 显示伤害数字
     this.scene.events.emit('showDamage', {
       x: enemy.sprite.x,
@@ -436,7 +467,7 @@ export default class Player extends Entity {
       isHeal: false,
       isCrit: isCrit
     });
-    
+
     // 显示消息
     if (enemy.isAlive) {
       const critMsg = isCrit ? '暴击！' : '';
@@ -444,6 +475,10 @@ export default class Player extends Entity {
     } else {
       this.scene.events.emit('showMessage', `击败了 ${enemy.name}！`);
       this.scene.removeEnemy(enemy);
+    }
+
+    if (startedAction && this.scene.timeManager) {
+      this.scene.timeManager.endAction();
     }
   }
 
@@ -458,7 +493,7 @@ export default class Player extends Entity {
     const mappedIndex = (this.quickSlots && this.quickSlots[index] !== undefined) ? this.quickSlots[index] : index;
     const spellCard = this.spellCardSystem.getSpellCard(mappedIndex);
     if (!spellCard) return false;
-    
+
     // 检查是否可以使用
     if (!spellCard.canUse(this.mp)) {
       if (this.mp < spellCard.mpCost) {
@@ -468,10 +503,10 @@ export default class Player extends Entity {
       }
       return false;
     }
-    
+
     // 消耗灵力
     this.mp -= spellCard.mpCost;
-    
+
     // 根据符卡类型使用
     let result;
     if (spellCard.type === 'bounce') {
@@ -483,37 +518,37 @@ export default class Player extends Entity {
     } else if (spellCard.type === 'homing') {
       // 追踪型符卡自动寻敌
       result = spellCard.use(this);
-      
+
       // 追踪型特殊处理
       if (result && result.noTarget) {
         // 没有目标，返还灵力
         this.mp += spellCard.mpCost;
         return false;
       }
-      
+
       // 追踪型直接对目标造成伤害
       if (result && result.isHoming && result.targets) {
         const damagePerHit = result.damage;
         const hitCounts = {};
-        
+
         // 统计每个敌人被命中次数
         for (let i = 0; i < result.hitCount; i++) {
           const target = result.targets[i % result.targets.length];
           hitCounts[target.name] = (hitCounts[target.name] || 0) + 1;
         }
-        
+
         // 对每个目标造成伤害
         for (const enemy of result.targets) {
           const hits = hitCounts[enemy.name] || 1;
           const totalDamage = enemy.takeDamage(damagePerHit * hits);
-          
+
           this.scene.events.emit('showDamage', {
             x: enemy.sprite.x,
             y: enemy.sprite.y - 20,
             damage: totalDamage,
             isHeal: false
           });
-          
+
           if (!enemy.isAlive) {
             this.scene.events.emit('showMessage', `${enemy.name} 被追踪弹击败！`);
             this.scene.removeEnemy(enemy);
@@ -521,18 +556,18 @@ export default class Player extends Entity {
         }
       }
     }
-    
+
     // 处理位置伤害（非穿透/非追踪类由 Player 立即判定）
     if (result && result.positions && result.positions.length > 0 && !result.isHoming && !result.piercing) {
       this.processSpellCardDamage(result);
     }
-    
+
     // 进入冷却
     spellCard.startCooldown();
-    
+
     // 显示消息
     this.scene.events.emit('showMessage', `使用了 ${spellCard.name}！`);
-    
+
     return true;
   }
 
@@ -548,7 +583,7 @@ export default class Player extends Entity {
 
   /**
    * 处理符卡伤害
-   * @param {Object} result 
+   * @param {Object} result
    */
   processSpellCardDamage(result) {
     // 如果是穿透/反弹类符卡，按照命中次数叠加伤害
@@ -580,10 +615,10 @@ export default class Player extends Entity {
           this.scene.removeEnemy(enemy);
         }
       }
-      
+
       // 同时检查障碍物
       try {
-        for (const pos of targetPositions) {
+        for (const pos of result.positions) {
           const obstacle = this.scene.getObstacleAt(pos.x, pos.y);
           if (obstacle && obstacle.isAlive) {
             obstacle.takeDamage(result.damage);
@@ -608,7 +643,7 @@ export default class Player extends Entity {
           this.scene.removeEnemy(enemy);
         }
       }
-      
+
       // 同时检查障碍物
       try {
         for (const pos of result.positions) {
@@ -629,16 +664,16 @@ export default class Player extends Entity {
     if (this.scene.timeManager) {
       this.scene.timeManager.startSnipe();
     }
-    
-    // 狙击射击：双倍射速
+
+    // 狙击射击：立即一发，并让冷却归零以持续按节奏射击
+    this.resetFireCooldown();
     this.autoFire();
-    this.autoFire();
-    
+
     // 通知时间管理器结束狙击
     if (this.scene.timeManager) {
       this.scene.timeManager.endSnipe();
     }
-    
+
     this.scene.events.emit('showMessage', '灵梦原地狙击！');
   }
 

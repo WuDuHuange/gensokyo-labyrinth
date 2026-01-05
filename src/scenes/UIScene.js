@@ -997,7 +997,7 @@ export default class UIScene extends Phaser.Scene {
     // 操作提示内容
     const hints = [
       { key: 'WASD/方向键', desc: '移动(时间流动)' },
-      { key: 'SPACE', desc: '等待/原地狙击' },
+      { key: 'F', desc: '原地狙击' },
       { key: 'Q+方向', desc: '转向(不动)' },
       { key: 'Z/X/C', desc: '释放符卡' },
       { key: 'TAB', desc: '自由视角' },

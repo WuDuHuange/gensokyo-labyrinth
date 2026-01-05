@@ -1085,8 +1085,8 @@ export default class GameScene extends Phaser.Scene {
       C: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C)
     };
     
-    // 等待键
-    this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    // 原地狙击键（由 Space 换为 F，避免与符卡操作冲突）
+    this.snipeKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
     
     // 自由视角键
     this.freeLookKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TAB);
@@ -1125,11 +1125,12 @@ export default class GameScene extends Phaser.Scene {
           
           // 击杀效果
           if (!enemy.isAlive) {
-            // 触发击杀时间冻结
-            if (this.timeManager) {
+            // 仅在 Boss 或精英怪时触发击杀时间冻结/闪屏
+            const isBossOrElite = enemy.isBoss || enemy.isElite;
+            if (isBossOrElite && this.timeManager) {
               this.timeManager.triggerKillFreeze();
             }
-            
+
             // 移除敌人（内部会处理经验、掉落等）
             this.removeEnemy(enemy);
           }
@@ -1181,6 +1182,16 @@ export default class GameScene extends Phaser.Scene {
     // 更新屏幕效果
     if (this.screenEffects) {
       this.screenEffects.update(delta);
+    }
+
+    // 基于时间缩放的自动射击节奏
+    const scaledDelta = this.timeManager ? this.timeManager.getScaledDelta(delta) : delta;
+    if (this.player && this.player.isAlive && this.timeManager) {
+      const state = this.timeManager.state;
+      const canShoot = state === TimeState.ACTION || state === TimeState.SNIPE;
+      if (canShoot) {
+        this.player.updateFireTimer(scaledDelta, state === TimeState.SNIPE);
+      }
     }
     // ==========================================
     
@@ -1397,7 +1408,7 @@ export default class GameScene extends Phaser.Scene {
     }
     
     // 等待（支持按住空格连续跳过回合）
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+    if (Phaser.Input.Keyboard.JustDown(this.snipeKey)) {
       this.player.wait();
       acted = true;
       this.heldMove = null;

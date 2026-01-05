@@ -252,6 +252,19 @@ export default class Player extends Entity {
       try { this.scene.checkEnterBossRoom(); } catch (e) {}
       // 检查战斗房
       try { this.scene.checkEnterCombatRoom(); } catch (e) {}
+      // 检查道具拾取
+      try {
+        if (this.scene.itemSystem) {
+          this.scene.itemSystem.tryPickupAt(this.tileX, this.tileY, this);
+        }
+      } catch (e) {}
+      // 检查神社交互
+      try {
+        const shrine = this.scene.getShrineAt(this.tileX, this.tileY);
+        if (shrine) {
+          this.scene.interactWithShrine(shrine);
+        }
+      } catch (e) {}
     }
   }
 

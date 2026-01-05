@@ -12,11 +12,11 @@ export class SpellCard {
     this.type = config.type;
     this.baseMpCost = config.mpCost; // 保存基础值
     this.mpCost = config.mpCost;
-    this.baseCooldown = config.cooldown; // 保存基础值
-    this.cooldown = config.cooldown;
+    this.baseCooldown = config.cooldown; // 保存基础值（回合数，转换为毫秒）
+    this.cooldownMs = config.cooldown * 1000; // 转换为毫秒（1回合=1秒）
     this.baseDamage = config.damage; // 保存基础值
     this.damage = config.damage;
-    this.currentCooldown = 0;
+    this.currentCooldown = 0; // 当前剩余冷却（毫秒）
     
     // 升级加成（由 SpellUpgradeSystem 设置）
     this._upgradeBonus = null;
@@ -50,7 +50,7 @@ export class SpellCard {
     if (this._upgradeBonus && this._upgradeBonus.cooldownReduction) {
       cd = Math.max(1, cd - this._upgradeBonus.cooldownReduction);
     }
-    return cd;
+    return cd * 1000; // 返回毫秒
   }
 
   canUse(currentMp) {
@@ -61,12 +61,27 @@ export class SpellCard {
     // 子类实现
   }
 
-  reduceCooldown() {
-    if (this.currentCooldown > 0) this.currentCooldown--;
+  /**
+   * 减少冷却时间（基于时间流逝）
+   * @param {number} deltaMs - 经过的毫秒数（已经过时间缩放）
+   */
+  reduceCooldown(deltaMs = 1000) {
+    if (this.currentCooldown > 0) {
+      this.currentCooldown = Math.max(0, this.currentCooldown - deltaMs);
+    }
   }
 
   startCooldown() {
     this.currentCooldown = this.getEffectiveCooldown();
+  }
+
+  /**
+   * 获取冷却进度（0-1，用于UI显示）
+   */
+  getCooldownProgress() {
+    const max = this.getEffectiveCooldown();
+    if (max <= 0) return 0;
+    return this.currentCooldown / max;
   }
 }
 
@@ -447,12 +462,22 @@ export default class SpellCardSystem {
     return this.spellCards[index];
   }
 
-  reduceCooldowns() {
-    for (const spell of this.spellCards) spell.reduceCooldown();
+  /**
+   * 减少所有符卡冷却（基于时间流逝）
+   * @param {number} deltaMs - 经过的毫秒数
+   */
+  reduceCooldowns(deltaMs = 1000) {
+    for (const spell of this.spellCards) spell.reduceCooldown(deltaMs);
   }
 
   getStatus() {
-    return this.spellCards.map(spell => ({ name: spell.name, mpCost: spell.mpCost, cooldown: spell.currentCooldown, maxCooldown: spell.cooldown }));
+    return this.spellCards.map(spell => ({
+      name: spell.name,
+      mpCost: spell.mpCost,
+      cooldown: Math.ceil(spell.currentCooldown / 1000), // 显示秒数
+      maxCooldown: Math.ceil(spell.getEffectiveCooldown() / 1000),
+      cooldownProgress: spell.getCooldownProgress()
+    }));
   }
 
   destroyAllOrbs() {

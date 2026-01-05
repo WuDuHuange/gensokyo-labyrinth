@@ -1219,6 +1219,16 @@ export default class GameScene extends Phaser.Scene {
         this.player.updateFireTimer(scaledDelta, state === TimeState.SNIPE);
       }
     }
+
+    // 更新符卡冷却（基于时间缩放）
+    if (this.spellCardSystem) {
+      this.spellCardSystem.reduceCooldowns(scaledDelta);
+    }
+
+    // 敌人行动更新（基于时间缩放，玩家移动时敌人也行动）
+    if (this.player && this.player.isMovingFree && scaledDelta > 0) {
+      this.updateEnemyActions(scaledDelta);
+    }
     // ==========================================
     
     if (!this.player || !this.player.isAlive) return;
@@ -1280,17 +1290,8 @@ export default class GameScene extends Phaser.Scene {
     // 处理符卡等即时输入（移动已在上面处理）
     this.handlePlayerInput();
     
-    // 敌人行动（使用 actionQueue 驱动）
-    const actor = this.actionQueue.tick();
-    if (actor && !actor.isPlayer && actor.isAlive) {
-      // 敌人回合 - 并行处理所有可行动的敌人
-      const actionable = this.actionQueue.getActionableEntities().filter(e => !e.isPlayer && e.isAlive);
-      if (actionable.length <= 1) {
-        this.processEnemyTurn(actor);
-      } else {
-        this.processEnemyBatch(actionable);
-      }
-    }
+    // 注：敌人行动已改为在 updateEnemyActions 中基于时间流逝触发
+    // 旧的 actionQueue 回合制逻辑已弃用
   }
 
   /**
@@ -1785,6 +1786,43 @@ export default class GameScene extends Phaser.Scene {
 
     this.updateUI();
     this.isProcessingTurn = false;
+  }
+
+  /**
+   * 基于时间流逝更新敌人行动（自由移动系统）
+   * @param {number} scaledDelta - 经过时间缩放后的毫秒数
+   */
+  updateEnemyActions(scaledDelta) {
+    if (!this.enemies || this.enemies.length === 0) return;
+    if (this.isProcessingTurn) return;
+
+    for (const enemy of this.enemies) {
+      if (!enemy.isAlive) continue;
+
+      // 初始化敌人的行动计时器
+      if (enemy.actionTimer === undefined) {
+        enemy.actionTimer = 0;
+        enemy.actionInterval = 1000 / (enemy.speed / 100); // 速度100 = 1秒行动一次
+      }
+
+      // 累积时间
+      enemy.actionTimer += scaledDelta;
+
+      // 达到行动间隔时执行行动
+      if (enemy.actionTimer >= enemy.actionInterval) {
+        enemy.actionTimer -= enemy.actionInterval;
+        
+        // 执行敌人行动（不使用 await，避免阻塞）
+        try {
+          enemy.act(this.player);
+        } catch (e) {}
+      }
+    }
+
+    // 检查玩家死亡
+    if (this.player && !this.player.isAlive) {
+      this.gameOver();
+    }
   }
   
 

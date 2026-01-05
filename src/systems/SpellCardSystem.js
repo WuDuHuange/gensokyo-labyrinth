@@ -201,10 +201,18 @@ export class MeigyokuAnki extends SpellCard {
       this.scene.spellCardSystem.activeOrbs.push(orb);
     }
 
+    // 获取时间缩放（用于调整动画速度）
+    const getTimeScale = () => {
+      if (this.scene.timeManager) {
+        return this.scene.timeManager.currentScale;
+      }
+      return 1;
+    };
+
     let pathIndex = 0;
     const moveNext = () => {
       if (pathIndex >= path.length) {
-        this.scene.tweens.add({
+        const fadeOutTween = this.scene.tweens.add({
           targets: orb,
           alpha: 0,
           scale: 0.6,
@@ -217,16 +225,22 @@ export class MeigyokuAnki extends SpellCard {
             try { orb.destroy(true); } catch (e) { try { orb.destroy(); } catch (e) { /* ignore */ } }
           }
         });
+        // 应用时间缩放
+        fadeOutTween.timeScale = getTimeScale();
         return;
       }
 
       const target = path[pathIndex];
-      this.scene.tweens.add({
+      const moveTween = this.scene.tweens.add({
         targets: orb,
         x: target.x * TILE_SIZE + TILE_SIZE / 2,
         y: target.y * TILE_SIZE + TILE_SIZE / 2,
         duration: 160,
         ease: 'Linear',
+        onUpdate: () => {
+          // 实时更新时间缩放
+          moveTween.timeScale = getTimeScale();
+        },
         onComplete: () => {
           this.createHitEffect(target.x, target.y);
           this.applyHitDamage(target.x, target.y);
@@ -234,9 +248,13 @@ export class MeigyokuAnki extends SpellCard {
           moveNext();
         }
       });
+      // 初始应用时间缩放
+      moveTween.timeScale = getTimeScale();
     };
 
-    this.scene.time.delayedCall(index * 120, moveNext);
+    // 延迟启动也要考虑时间缩放
+    const baseDelay = index * 120;
+    this.scene.time.delayedCall(baseDelay, moveNext);
   }
 
   applyHitDamage(tileX, tileY) {
@@ -397,6 +415,14 @@ export class MusouMyouji extends SpellCard {
       this.scene.spellCardSystem.activeOrbs.push(container);
     }
 
+    // 获取时间缩放
+    const getTimeScale = () => {
+      if (this.scene.timeManager) {
+        return this.scene.timeManager.currentScale;
+      }
+      return 1;
+    };
+
     const angle = (index / this.projectileCount) * Math.PI * 2;
     const offsetX = Math.cos(angle) * 20;
     const offsetY = Math.sin(angle) * 20;
@@ -404,18 +430,20 @@ export class MusouMyouji extends SpellCard {
     container.y += offsetY;
 
     this.scene.time.delayedCall(50 + index * 60, () => {
-      this.scene.tweens.add({
+      const riseTween = this.scene.tweens.add({
         targets: container,
         y: container.y - 20,
         duration: 120,
         ease: 'Quad.easeOut',
+        onUpdate: () => { riseTween.timeScale = getTimeScale(); },
         onComplete: () => {
-          this.scene.tweens.add({
+          const homingTween = this.scene.tweens.add({
             targets: container,
             x: target.tileX * TILE_SIZE + TILE_SIZE / 2,
             y: target.tileY * TILE_SIZE + TILE_SIZE / 2,
             duration: 160,
             ease: 'Quad.easeIn',
+            onUpdate: () => { homingTween.timeScale = getTimeScale(); },
             onComplete: () => {
               this.createImpactEffect(target.tileX, target.tileY, color);
               if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) {
@@ -425,8 +453,10 @@ export class MusouMyouji extends SpellCard {
               try { container.destroy(true); } catch (e) { try { container.destroy(); } catch (e) { /* ignore */ } }
             }
           });
+          homingTween.timeScale = getTimeScale();
         }
       });
+      riseTween.timeScale = getTimeScale();
     });
   }
 

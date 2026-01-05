@@ -28,9 +28,43 @@ export default class ScreenEffects {
     // 创建晕影图层
     this.createVignette();
     
+    // 创建亮度覆盖层（用于行动状态）
+    this.createBrightnessOverlay();
+    
     // 监听时间效果事件
     if (this.scene.events) {
       this.scene.events.on('timeEffects', this.handleTimeEffects, this);
+    }
+  }
+
+  /**
+   * 创建亮度覆盖层
+   */
+  createBrightnessOverlay() {
+    const width = this.scene.cameras.main.width;
+    const height = this.scene.cameras.main.height;
+    
+    this.brightnessOverlay = this.scene.add.rectangle(
+      width / 2,
+      height / 2,
+      width,
+      height,
+      0xffffff,
+      0
+    );
+    this.brightnessOverlay.setScrollFactor(0);
+    this.brightnessOverlay.setDepth(899);
+    this.brightnessOverlay.setBlendMode(Phaser.BlendModes.ADD);
+    this.currentBrightness = 0;
+  }
+
+  /**
+   * 设置画面亮度（0 = 正常，0.2 = 较亮）
+   */
+  setBrightness(value) {
+    this.currentBrightness = value;
+    if (this.brightnessOverlay) {
+      this.brightnessOverlay.setAlpha(value);
     }
   }
   
@@ -123,12 +157,15 @@ export default class ScreenEffects {
       }
     });
     
-    // 降低饱和度（通过相机色调模拟）
-    // Phaser 原生不直接支持饱和度，这里用色调近似
-    try {
-      // 轻微蓝灰色调
-      // this.scene.cameras.main.setTint(0xccccdd);
-    } catch (e) {}
+    // 降低亮度（变暗）
+    this.scene.tweens.add({
+      targets: this,
+      currentBrightness: 0,
+      duration: 300,
+      onUpdate: () => {
+        this.setBrightness(this.currentBrightness);
+      }
+    });
   }
   
   /**
@@ -145,13 +182,15 @@ export default class ScreenEffects {
       }
     });
     
-    // 恢复饱和度
-    try {
-      // this.scene.cameras.main.clearTint();
-    } catch (e) {}
-    
-    // 注：移除每次行动的闪屏，太频繁会干扰游戏
-    // this.flashBright(50);
+    // 增加亮度（变亮）
+    this.scene.tweens.add({
+      targets: this,
+      currentBrightness: 0.15,
+      duration: 100,
+      onUpdate: () => {
+        this.setBrightness(this.currentBrightness);
+      }
+    });
   }
   
   /**
@@ -182,8 +221,18 @@ export default class ScreenEffects {
    * 应用狙击模式效果
    */
   applySnipeEffect(data) {
-    // 聚焦效果：轻微晕影 + 中心清晰
+    // 聚焦效果：轻微晕影 + 中心清晰 + 正常亮度
     this.setVignette(0.2);
+    
+    // 狙击模式时也增加亮度
+    this.scene.tweens.add({
+      targets: this,
+      currentBrightness: 0.12,
+      duration: 100,
+      onUpdate: () => {
+        this.setBrightness(this.currentBrightness);
+      }
+    });
   }
   
   /**

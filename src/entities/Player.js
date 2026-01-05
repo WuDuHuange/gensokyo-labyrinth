@@ -52,6 +52,34 @@ export default class Player extends Entity {
     this.moveSpeed = 160;         // 像素/秒 移动速度
     this.velocity = { x: 0, y: 0 }; // 当前速度向量
     this.isMovingFree = false;    // 是否正在自由移动
+
+    // 创建判定点显示（擦弹系统用）
+    this.createHitboxIndicator();
+  }
+
+  /**
+   * 创建判定点指示器（显示在角色中心）
+   */
+  createHitboxIndicator() {
+    // 小红点表示实际判定点
+    this.hitboxIndicator = this.scene.add.circle(this.pixelX, this.pixelY, 4, 0xff0000, 0.8);
+    this.hitboxIndicator.setDepth(this.sprite.depth + 1);
+    // 外圈表示擦弹范围
+    this.grazeRing = this.scene.add.circle(this.pixelX, this.pixelY, 16, 0xffff00, 0);
+    this.grazeRing.setStrokeStyle(1, 0xffff00, 0.4);
+    this.grazeRing.setDepth(this.sprite.depth + 1);
+  }
+
+  /**
+   * 更新判定点位置
+   */
+  updateHitboxIndicator() {
+    if (this.hitboxIndicator) {
+      this.hitboxIndicator.setPosition(this.pixelX, this.pixelY);
+    }
+    if (this.grazeRing) {
+      this.grazeRing.setPosition(this.pixelX, this.pixelY);
+    }
   }
 
   /**
@@ -229,6 +257,9 @@ export default class Player extends Entity {
     this.pixelX = newPixelX;
     this.pixelY = newPixelY;
     this.sprite.setPosition(this.pixelX, this.pixelY);
+
+    // 更新判定点显示
+    this.updateHitboxIndicator();
 
     // 更新 tile 坐标
     const oldTileX = this.tileX;

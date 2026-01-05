@@ -1185,6 +1185,9 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ========== 自由移动系统更新 ==========
+    // 检测狙击键状态（F键按住）
+    const isSnipeKeyDown = this.snipeKey && this.snipeKey.isDown;
+    
     if (this.player && this.player.isAlive) {
       // 检测方向键按住状态
       const upDown = this.cursors.up.isDown || this.wasd.W.isDown;
@@ -1198,12 +1201,29 @@ export default class GameScene extends Phaser.Scene {
       if (leftDown && !rightDown) dx = -1;
       else if (rightDown && !leftDown) dx = 1;
 
-      // 如果有方向输入，开始/更新自由移动
-      if (dx !== 0 || dy !== 0) {
-        this.player.startFreeMove(dx, dy);
-      } else {
-        // 松开所有方向键，停止移动
+      const hasMovementInput = dx !== 0 || dy !== 0;
+
+      // 狙击模式：按住F键时进入，松开时退出
+      if (isSnipeKeyDown) {
+        // 按住F：进入/保持狙击模式（即使同时按方向键也不移动）
+        if (this.timeManager && this.timeManager.state !== TimeState.SNIPE) {
+          this.timeManager.startSnipe();
+        }
+        // 狙击模式下不移动
         this.player.stopFreeMove();
+      } else {
+        // 没按F：如果之前是狙击模式，退出
+        if (this.timeManager && this.timeManager.state === TimeState.SNIPE) {
+          this.timeManager.endSnipe();
+        }
+        
+        // 如果有方向输入，开始/更新自由移动
+        if (hasMovementInput) {
+          this.player.startFreeMove(dx, dy);
+        } else {
+          // 松开所有方向键，停止移动
+          this.player.stopFreeMove();
+        }
       }
 
       // 更新自由移动（每帧）
@@ -1212,21 +1232,22 @@ export default class GameScene extends Phaser.Scene {
 
     // 基于时间缩放的自动射击节奏
     const scaledDelta = this.timeManager ? this.timeManager.getScaledDelta(delta) : delta;
-    if (this.player && this.player.isAlive && this.timeManager) {
-      const state = this.timeManager.state;
-      const canShoot = state === TimeState.ACTION || state === TimeState.SNIPE;
-      if (canShoot) {
-        this.player.updateFireTimer(scaledDelta, state === TimeState.SNIPE);
-      }
+    
+    // 射击逻辑：只要时间在流动就可以射击（不论是否移动）
+    if (this.player && this.player.isAlive && scaledDelta > 0) {
+      const state = this.timeManager ? this.timeManager.state : TimeState.IDLE;
+      // ACTION 和 SNIPE 模式下正常射击，IDLE 模式下也按缩放后的时间射击
+      const isSnipe = state === TimeState.SNIPE;
+      this.player.updateFireTimer(scaledDelta, isSnipe);
     }
 
     // 更新符卡冷却（基于时间缩放）
-    if (this.spellCardSystem) {
+    if (this.spellCardSystem && scaledDelta > 0) {
       this.spellCardSystem.reduceCooldowns(scaledDelta);
     }
 
-    // 敌人行动更新（基于时间缩放，玩家移动时敌人也行动）
-    if (this.player && this.player.isMovingFree && scaledDelta > 0) {
+    // 敌人行动更新（基于时间缩放，只要时间在流动敌人就行动）
+    if (scaledDelta > 0) {
       this.updateEnemyActions(scaledDelta);
     }
     // ==========================================
@@ -1358,8 +1379,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * 处理玩家输入（符卡、狙击等非移动操作）
-   * 移动已改为自由移动，在 update 中直接处理
+   * 处理玩家输入（符卡等非移动操作）
+   * 移动和狙击已改为在 update 中直接处理
    */
   handlePlayerInput() {
     let acted = false;
@@ -1373,11 +1394,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.player.useSpellCard(2)) acted = true;
     }
     
-    // 原地狙击（F键）
-    if (Phaser.Input.Keyboard.JustDown(this.snipeKey)) {
-      this.player.wait();
-      acted = true;
-    }
+    // 注：F键狙击模式已在 update 循环中作为按住检测处理
 
     if (acted) {
       this.endPlayerTurn();

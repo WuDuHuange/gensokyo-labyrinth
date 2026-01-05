@@ -589,9 +589,9 @@ export default class UIScene extends Phaser.Scene {
       
       this.spellSlotTexts[i].setText(s.name);
       
-      // 根据冷却状态设置颜色
+      // 根据冷却状态设置颜色（cooldown 现在是秒数）
       if (s.cooldown > 0) {
-        this.spellSlotCd[i].setText(`${s.cooldown}回合`);
+        this.spellSlotCd[i].setText(`${s.cooldown}秒`);
         this.spellSlotCd[i].setColor('#ff6b6b');
         this.spellSlotTexts[i].setColor('#666677');
       } else {

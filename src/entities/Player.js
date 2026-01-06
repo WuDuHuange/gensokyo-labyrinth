@@ -69,6 +69,32 @@ export default class Player extends Entity {
   }
 
   /**
+   * 自动锁定最近敌人，返回射击方向（没有则保持原朝向）
+   */
+  getAutoAimDirection(maxRange = 8) {
+    let nearest = null;
+    let nearestDist = Infinity;
+
+    for (const enemy of this.scene.enemies) {
+      if (!enemy || !enemy.isAlive) continue;
+      const dist = Math.abs(enemy.tileX - this.tileX) + Math.abs(enemy.tileY - this.tileY);
+      if (dist < nearestDist && dist <= maxRange) {
+        nearest = enemy;
+        nearestDist = dist;
+      }
+    }
+
+    if (nearest) {
+      const dx = Math.sign(nearest.tileX - this.tileX) || 0;
+      const dy = Math.sign(nearest.tileY - this.tileY) || 0;
+      // 避免 (0,0) 方向
+      return { x: dx === 0 && dy === 0 ? this.facing.x : dx, y: dx === 0 && dy === 0 ? this.facing.y : dy, target: nearest };
+    }
+
+    return { x: this.facing.x, y: this.facing.y, target: null };
+  }
+
+  /**
    * 创建判定点指示器（显示在角色中心）
    */
   createHitboxIndicator() {
@@ -708,14 +734,17 @@ export default class Player extends Entity {
     // 消耗灵力
     this.mp -= spellCard.mpCost;
 
+    // 自动瞄准最近敌人方向（若有）
+    const aim = this.getAutoAimDirection(spellCard.range || 8);
+
     // 根据符卡类型使用
     let result;
     if (spellCard.type === 'bounce') {
       // 反弹型符卡使用朝向
-      result = spellCard.use(this, this.facing);
+      result = spellCard.use(this, { x: aim.x, y: aim.y });
     } else if (spellCard.type === 'barrier') {
       // 结界型符卡放置在前方
-      result = spellCard.use(this, this.facing);
+      result = spellCard.use(this, { x: aim.x, y: aim.y });
     } else if (spellCard.type === 'homing') {
       // 追踪型符卡自动寻敌
       result = spellCard.use(this);
@@ -854,6 +883,21 @@ export default class Player extends Entity {
   onTurnEnd() {
     // 恢复灵力
     this.mp = Math.min(this.maxMp, this.mp + this.mpRegen);
+  }
+
+  /**
+   * 获取实时灵力回复速率（每秒），叠加装备/天赋加成
+   */
+  getEffectiveMpRegenPerSec() {
+    let regen = this.mpRegen || 0;
+    const equipBonus = this.equipmentSystem ? this.equipmentSystem.bonuses || {} : {};
+    const talentBonus = this.talentSystem ? this.talentSystem.bonuses || {} : {};
+
+    if (talentBonus.mpRegenMult) regen *= talentBonus.mpRegenMult;
+    if (equipBonus.mpRegenMult) regen *= equipBonus.mpRegenMult;
+    if (equipBonus.mpRegen) regen += equipBonus.mpRegen;
+
+    return regen;
   }
 
   /**

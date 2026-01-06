@@ -3,6 +3,7 @@
  * 
  * 核心理念: 时间只在玩家行动时流逝
  */
+import AudioManager from './AudioManager.js';
 
 export const TimeState = {
   IDLE: 'idle',           // 静止状态 - 时间极慢
@@ -98,6 +99,9 @@ export default class TimeScaleManager {
       this.currentScale = this.targetScale;
     }
     
+    // 更新音乐播放速率（时间越慢音乐越慢且更低沉）
+    this.updateMusicRate();
+
     // 通知监听器
     this.notifyListeners();
   }
@@ -250,6 +254,18 @@ export default class TimeScaleManager {
         console.error('TimeScaleManager listener error:', e);
       }
     }
+  }
+
+  /**
+   * 根据当前时间缩放调整 BGM 速度与音高
+   */
+  updateMusicRate() {
+    const sound = AudioManager ? AudioManager.currentSound : null;
+    if (!sound) return;
+    const rate = Math.max(0.4, Math.min(1.0, this.currentScale));
+    try { sound.setRate(rate); } catch (e) {}
+    // Detune 让慢速时音色更沉
+    try { sound.setDetune((rate - 1) * 800); } catch (e) {}
   }
   
   // ========== 视觉/音频效果 ==========

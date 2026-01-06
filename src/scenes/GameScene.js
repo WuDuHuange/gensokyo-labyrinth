@@ -1247,6 +1247,14 @@ export default class GameScene extends Phaser.Scene {
       this.spellCardSystem.reduceCooldowns(scaledDelta);
     }
 
+    // 实时灵力回复（受时间流速影响）
+    if (scaledDelta > 0 && this.player && this.player.mp < this.player.maxMp) {
+      const mpRate = this.player.getEffectiveMpRegenPerSec ? this.player.getEffectiveMpRegenPerSec() : 0;
+      if (mpRate > 0) {
+        this.player.mp = Math.min(this.player.maxMp, this.player.mp + mpRate * (scaledDelta / 1000));
+      }
+    }
+
     // 结界计时（基于时间流逝，避免特效残留）
     if (scaledDelta > 0) {
       this.tickBarrierTimers(scaledDelta);

@@ -250,6 +250,22 @@ export default class BulletManager {
       
       // 更新位置
       bullet.update(scaledDelta);
+
+      // 碰到墙/门则销毁（不可穿墙）
+      const map = this.scene.mapManager;
+      const tx = Math.floor(bullet.x / TILE_SIZE);
+      const ty = Math.floor(bullet.y / TILE_SIZE);
+      if (map && !map.isWalkable(tx, ty)) {
+        this.recycleBullet(bullet);
+        continue;
+      }
+      try {
+        const door = this.scene.getDoorAt ? this.scene.getDoorAt(tx, ty) : null;
+        if (door && !door.isOpen) {
+          this.recycleBullet(bullet);
+          continue;
+        }
+      } catch (e) {}
       
       // 检查是否出界
       if (bullet.x < bounds.left || bullet.x > bounds.right ||

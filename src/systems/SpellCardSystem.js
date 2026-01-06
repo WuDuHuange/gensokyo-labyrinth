@@ -356,7 +356,7 @@ export class Fuumajin extends SpellCard {
     this.scene.tweens.add({ targets: runes, angle: 360, duration: 600 });
     this.scene.tweens.add({ targets: barrier, alpha: 0.3, duration: 300, yoyo: true });
 
-    const barrierData = { x: centerX, y: centerY, radius: this.radius, damage: this.damage, duration: this.duration, graphics: barrier, runes };
+    const barrierData = { x: centerX, y: centerY, radius: this.radius, damage: this.damage, duration: this.duration, graphics: barrier, runes, remainingMs: this.duration * 1000 };
     // 添加一个循环计时器，用于在非回合操作时也让结界保持视觉脉冲
     try {
       const pulseTimer = this.scene.time.addEvent({
@@ -373,6 +373,16 @@ export class Fuumajin extends SpellCard {
     } catch (e) { /* 如果 time 或 tweens 不可用则忽略 */ }
 
     if (this.scene.addBarrier) this.scene.addBarrier(barrierData);
+
+    // 兜底定时清理，防止异常情况下特效残留
+    try {
+      barrierData.autoTimer = this.scene.time.addEvent({
+        delay: this.duration * 1000,
+        callback: () => {
+          if (this.scene && this.scene.removeBarrier) this.scene.removeBarrier(barrierData);
+        }
+      });
+    } catch (e) { /* ignore timer setup errors */ }
   }
 }
 
@@ -386,6 +396,7 @@ export class MusouMyouji extends SpellCard {
   use(caster) {
     const startX = caster.tileX;
     const startY = caster.tileY;
+    const damagePerHit = this.getEffectiveDamage();
     const enemies = this.scene.getEnemiesInRange(startX, startY, this.range);
     if (!enemies || enemies.length === 0) {
       this.scene.events.emit('showMessage', '范围内没有敌人！');
@@ -398,13 +409,13 @@ export class MusouMyouji extends SpellCard {
       const target = enemies[i % enemies.length];
       hitPositions.push({ x: target.tileX, y: target.tileY });
       if (!hitEnemies.includes(target)) hitEnemies.push(target);
-      this.createHomingOrb(startX, startY, target, i);
+      this.createHomingOrb(startX, startY, target, i, damagePerHit);
     }
 
-    return { damage: this.getEffectiveDamage(), positions: hitPositions, piercing: false, isHoming: true, targets: hitEnemies, hitCount: this.projectileCount };
+    return { damage: damagePerHit, positions: hitPositions, piercing: false, isHoming: true, targets: hitEnemies, hitCount: this.projectileCount };
   }
 
-  createHomingOrb(startX, startY, target, index) {
+  createHomingOrb(startX, startY, target, index, damagePerHit) {
     const colors = [0xff6b6b, 0xffb86b, 0xfff66b, 0x6bff6b, 0x6bffff];
     const color = colors[index % colors.length];
     const orbOuter = this.scene.add.circle(0, 0, 8, color);
@@ -446,6 +457,7 @@ export class MusouMyouji extends SpellCard {
             onUpdate: () => { homingTween.timeScale = getTimeScale(); },
             onComplete: () => {
               this.createImpactEffect(target.tileX, target.tileY, color);
+              this.applyDamageToTarget(target, damagePerHit);
               if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) {
                 const i = this.scene.spellCardSystem.activeOrbs.indexOf(container);
                 if (i !== -1) this.scene.spellCardSystem.activeOrbs.splice(i, 1);
@@ -464,6 +476,22 @@ export class MusouMyouji extends SpellCard {
     const impact = this.scene.add.circle(tileX * TILE_SIZE + TILE_SIZE / 2, tileY * TILE_SIZE + TILE_SIZE / 2, 12, color).setAlpha(0.9);
     if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) this.scene.spellCardSystem.activeOrbs.push(impact);
     this.scene.tweens.add({ targets: impact, alpha: 0, scale: 2, duration: 120, onComplete: () => { try { impact.destroy(); } catch (e) { /* ignore */ } if (this.scene.spellCardSystem && this.scene.spellCardSystem.activeOrbs) { const i = this.scene.spellCardSystem.activeOrbs.indexOf(impact); if (i !== -1) this.scene.spellCardSystem.activeOrbs.splice(i, 1); } } });
+  }
+
+  applyDamageToTarget(enemy, damage) {
+    if (!enemy || !enemy.isAlive) return;
+    const dealt = enemy.takeDamage(damage);
+    this.scene.events.emit('showDamage', {
+      x: enemy.sprite.x,
+      y: enemy.sprite.y - 20,
+      damage: dealt,
+      isHeal: false
+    });
+
+    if (!enemy.isAlive) {
+      this.scene.events.emit('showMessage', `${enemy.name} 被追踪弹击败！`);
+      this.scene.removeEnemy(enemy);
+    }
   }
 }
 

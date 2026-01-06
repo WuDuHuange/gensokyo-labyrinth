@@ -58,14 +58,26 @@ export default class Player extends Entity {
   }
 
   /**
+   * 计算当前贴图的视觉中心（考虑原点与缩放）
+   */
+  getHitboxCenter() {
+    const sprite = this.sprite;
+    if (!sprite) return { x: this.pixelX, y: this.pixelY };
+    const centerX = sprite.x - sprite.displayWidth * (sprite.originX - 0.5);
+    const centerY = sprite.y - sprite.displayHeight * (sprite.originY - 0.5);
+    return { x: centerX, y: centerY };
+  }
+
+  /**
    * 创建判定点指示器（显示在角色中心）
    */
   createHitboxIndicator() {
+    const center = this.getHitboxCenter();
     // 小红点表示实际判定点
-    this.hitboxIndicator = this.scene.add.circle(this.pixelX, this.pixelY, 4, 0xff0000, 0.8);
+    this.hitboxIndicator = this.scene.add.circle(center.x, center.y, 4, 0xff0000, 0.8);
     this.hitboxIndicator.setDepth(this.sprite.depth + 1);
     // 外圈表示擦弹范围
-    this.grazeRing = this.scene.add.circle(this.pixelX, this.pixelY, 16, 0xffff00, 0);
+    this.grazeRing = this.scene.add.circle(center.x, center.y, 16, 0xffff00, 0);
     this.grazeRing.setStrokeStyle(1, 0xffff00, 0.4);
     this.grazeRing.setDepth(this.sprite.depth + 1);
   }
@@ -74,11 +86,12 @@ export default class Player extends Entity {
    * 更新判定点位置
    */
   updateHitboxIndicator() {
+    const center = this.getHitboxCenter();
     if (this.hitboxIndicator) {
-      this.hitboxIndicator.setPosition(this.pixelX, this.pixelY);
+      this.hitboxIndicator.setPosition(center.x, center.y);
     }
     if (this.grazeRing) {
-      this.grazeRing.setPosition(this.pixelX, this.pixelY);
+      this.grazeRing.setPosition(center.x, center.y);
     }
   }
 
@@ -712,36 +725,6 @@ export default class Player extends Entity {
         // 没有目标，返还灵力
         this.mp += spellCard.mpCost;
         return false;
-      }
-
-      // 追踪型直接对目标造成伤害
-      if (result && result.isHoming && result.targets) {
-        const damagePerHit = result.damage;
-        const hitCounts = {};
-
-        // 统计每个敌人被命中次数
-        for (let i = 0; i < result.hitCount; i++) {
-          const target = result.targets[i % result.targets.length];
-          hitCounts[target.name] = (hitCounts[target.name] || 0) + 1;
-        }
-
-        // 对每个目标造成伤害
-        for (const enemy of result.targets) {
-          const hits = hitCounts[enemy.name] || 1;
-          const totalDamage = enemy.takeDamage(damagePerHit * hits);
-
-          this.scene.events.emit('showDamage', {
-            x: enemy.sprite.x,
-            y: enemy.sprite.y - 20,
-            damage: totalDamage,
-            isHeal: false
-          });
-
-          if (!enemy.isAlive) {
-            this.scene.events.emit('showMessage', `${enemy.name} 被追踪弹击败！`);
-            this.scene.removeEnemy(enemy);
-          }
-        }
       }
     }
 

@@ -375,6 +375,17 @@ export default class ScreenEffects {
   update(delta) {
     // 清理已销毁的残影
     this.afterImages = this.afterImages.filter(img => img.active);
+
+    // 根据时间流速自动调整明暗：正常流速亮，慢流速暗
+    const tm = this.scene.timeManager;
+    const scale = tm && tm.getScale ? tm.getScale() : (tm && tm.currentScale) ? tm.currentScale : 1;
+    const targetBrightness = scale >= 0.99 ? 0.15 : 0;
+    const targetVignette = scale >= 0.99 ? 0 : 0.3;
+    const lerp = Math.min(1, delta / 200);
+    this.currentBrightness += (targetBrightness - this.currentBrightness) * lerp;
+    this.currentVignette += (targetVignette - this.currentVignette) * lerp;
+    this.setBrightness(this.currentBrightness);
+    this.setVignette(this.currentVignette);
   }
   
   /**

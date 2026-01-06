@@ -296,16 +296,22 @@ export default class BulletManager {
       bullet = new Bullet(config);
     }
     
+    const textureKey = config.texture || bullet.texture || 'enemyBullet';
+
     // 创建精灵
     if (!bullet.sprite) {
-      const texture = config.texture || 'bullet_red';
-      bullet.sprite = this.scene.add.sprite(bullet.x, bullet.y, texture);
-      bullet.sprite.setScale(0.5);
+      bullet.sprite = this.scene.add.sprite(bullet.x, bullet.y, textureKey);
       this.container.add(bullet.sprite);
     } else {
+      bullet.sprite.setTexture(textureKey);
       bullet.sprite.setPosition(bullet.x, bullet.y);
       bullet.sprite.setVisible(true);
     }
+
+    // 统一重置外观，避免复用时残留缩放/透明度
+    bullet.sprite.setScale(0.5);
+    bullet.sprite.setAlpha(1);
+    bullet.sprite.setRotation(bullet.angle);
     
     return bullet;
   }

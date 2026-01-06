@@ -55,6 +55,7 @@ export default class GameScene extends Phaser.Scene {
     
     // 结界系统
     this.barriers = [];
+    this._uiUpdateTimer = 0;
     
     // ========== Superhot 系统 ==========
     this.timeManager = null;      // 时间缩放管理器
@@ -1246,11 +1247,23 @@ export default class GameScene extends Phaser.Scene {
       this.spellCardSystem.reduceCooldowns(scaledDelta);
     }
 
+    // 结界计时（基于时间流逝，避免特效残留）
+    if (scaledDelta > 0) {
+      this.tickBarrierTimers(scaledDelta);
+    }
+
     // 敌人行动更新（基于时间缩放，只要时间在流动敌人就行动）
     if (scaledDelta > 0) {
       this.updateEnemyActions(scaledDelta);
     }
     // ==========================================
+
+    // HUD 定期刷新，保证状态栏实时显示
+    this._uiUpdateTimer += delta;
+    if (this._uiUpdateTimer >= 120) {
+      this.updateUI();
+      this._uiUpdateTimer = 0;
+    }
     
     if (!this.player || !this.player.isAlive) return;
     
@@ -2064,6 +2077,18 @@ export default class GameScene extends Phaser.Scene {
     this.barriers.push(barrierData);
   }
 
+  removeBarrier(barrier) {
+    const index = this.barriers.indexOf(barrier);
+    if (index !== -1) {
+      this.barriers.splice(index, 1);
+    }
+
+    try { if (barrier.graphics && barrier.graphics.destroy) barrier.graphics.destroy(); } catch (e) {}
+    try { if (barrier.runes && barrier.runes.destroy) barrier.runes.destroy(); } catch (e) {}
+    try { if (barrier.pulseTimer && barrier.pulseTimer.remove) barrier.pulseTimer.remove(false); } catch (e) {}
+    try { if (barrier.autoTimer && barrier.autoTimer.remove) barrier.autoTimer.remove(false); } catch (e) {}
+  }
+
   /**
    * 处理结界效果（每回合检测）
    */
@@ -2107,15 +2132,22 @@ export default class GameScene extends Phaser.Scene {
     
     // 移除过期结界
     for (const barrier of toRemove) {
-      const index = this.barriers.indexOf(barrier);
-      if (index !== -1) {
-        this.barriers.splice(index, 1);
-      }
+      this.removeBarrier(barrier);
+    }
+  }
 
-      // 销毁视觉对象
-      try { if (barrier.graphics && barrier.graphics.destroy) barrier.graphics.destroy(); } catch (e) {}
-      try { if (barrier.runes && barrier.runes.destroy) barrier.runes.destroy(); } catch (e) {}
-      try { if (barrier.pulseTimer && barrier.pulseTimer.remove) barrier.pulseTimer.remove(false); } catch (e) {}
+  tickBarrierTimers(deltaMs) {
+    if (!this.barriers.length) return;
+    const expired = [];
+    for (const barrier of this.barriers) {
+      if (barrier.remainingMs === undefined) continue;
+      barrier.remainingMs -= deltaMs;
+      if (barrier.remainingMs <= 0) {
+        expired.push(barrier);
+      }
+    }
+    for (const barrier of expired) {
+      this.removeBarrier(barrier);
     }
   }
 

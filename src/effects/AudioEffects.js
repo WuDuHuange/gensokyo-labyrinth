@@ -69,13 +69,37 @@ export default class AudioEffects {
       this.lowpassFilter.type = 'lowpass';
       this.lowpassFilter.frequency.value = 20000; // 默认不过滤
       this.lowpassFilter.Q.value = 1;
-      
-      // 创建增益节点
+
+      // 创建增益节点（作为备用回退）
       this.gainNode = this.audioContext.createGain();
       this.gainNode.gain.value = 1.0;
-      
-      // 注意：连接 Phaser 的音频输出到滤波器需要访问内部实现
-      // 这里提供一个简化的实现
+
+      // 尝试将 Phaser Sound Manager 的输出接入我们的滤波器链。
+      // Phaser 在 WebAudio 模式下通常暴露 `this.sound.context` 和 `this.sound.masterGainNode` 或 `this.sound.masterGain`.
+      // 我们优先使用已存在的 masterGainNode（较新 Phaser 版本），否则尝试查找 manager.masterGainNode 或直接连接到 context.destination。
+      const mgr = this.scene && this.scene.sound ? this.scene.sound : null;
+      try {
+        if (mgr && mgr.context) {
+          // 寻找可能存在的 master gain 节点
+          const master = mgr.masterGainNode || (mgr.manager && mgr.manager.masterGainNode) || null;
+          if (master && typeof master.connect === 'function') {
+            // 重新链接：master -> lowpass -> destination
+            try { master.disconnect(); } catch (e) {}
+            master.connect(this.lowpassFilter);
+            this.lowpassFilter.connect(this.audioContext.destination);
+            this._connectedMaster = master;
+            return;
+          }
+        }
+      } catch (e) {
+        // 继续尝试其它安全方式
+      }
+
+      // 回退：直接把低通滤波器连接到 context.destination，Phaser 的声音仍然会走默认输出,
+      // 但我们保留 setLowpassFrequency 的能力（在某些环境下需额外集成到 Phaser）
+      try {
+        this.lowpassFilter.connect(this.audioContext.destination);
+      } catch (e) {}
     } catch (e) {
       console.warn('Failed to setup audio nodes:', e);
     }

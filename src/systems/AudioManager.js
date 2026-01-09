@@ -26,6 +26,21 @@ export default class AudioManager {
     const next = scene.sound.add(key, { loop, volume: 0 });
     next.play();
 
+    // 如果场景提供了 audioEffects 并且有低通节点，需要尝试将该声音的内部源连接到滤波器链上。
+    try {
+      const effects = scene.audioEffects;
+      if (effects && effects.audioContext && effects.lowpassFilter && next && next.source) {
+        try {
+          // 一般 Phaser 的 WebAudio sound 对象有一个 `source` 节点或 `node`，尝试安全连接
+          const s = next.source || next.node || null;
+          if (s && typeof s.connect === 'function') {
+            // 默认情况下声音会连接到 master; 我们尝试将其也连接到 lowpass（不会破坏原有链）
+            s.connect(effects.lowpassFilter);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+
     if (prev) {
       try {
         scene.tweens.add({

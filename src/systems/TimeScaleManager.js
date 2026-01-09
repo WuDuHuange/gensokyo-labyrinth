@@ -55,6 +55,9 @@ export default class TimeScaleManager {
     
     // 音频效果状态
     this.audioEffectsEnabled = true;
+
+    // BGM 低通滤波节点
+    this.musicFilter = null;
   }
   
   /**
@@ -257,16 +260,51 @@ export default class TimeScaleManager {
   }
 
   /**
-   * 根据当前时间缩放调整 BGM 速度与音高
+   * 根据当前时间缩放调整 BGM 低通与音高（不再改变播放速度）
    */
   updateMusicRate() {
     const sound = AudioManager ? AudioManager.currentSound : null;
     if (!sound) return;
-    // 最慢只降到 90% 速率，避免音乐过度变慢
-    const rate = Math.max(0.9, Math.min(1.0, this.currentScale));
-    try { sound.setRate(rate); } catch (e) {}
-    // 轻微下沉音高，随速率线性变化
-    try { sound.setDetune((rate - 1) * 400); } catch (e) {}
+
+    // 确保有低通滤波节点并接入当前 BGM（仅 WebAudio 可用）
+    const ctx = this.scene && this.scene.sound ? this.scene.sound.context : null;
+    if (ctx && !this.musicFilter) {
+      try {
+        this.musicFilter = ctx.createBiquadFilter();
+        this.musicFilter.type = 'lowpass';
+        this.musicFilter.frequency.value = 22000;
+        // 尝试将音源接入滤波链
+        if (sound.source) {
+          try { sound.source.disconnect(); } catch (e) {}
+          try {
+            sound.source.connect(this.musicFilter);
+            this.musicFilter.connect(sound.manager ? sound.manager.masterGainNode : ctx.destination);
+          } catch (e) {}
+        }
+      } catch (e) {
+        this.musicFilter = null;
+      }
+    }
+
+    // 计算目标低通频率：时间越慢，频率越低（典型 200~600Hz）
+    const slowFreq = 400;
+    const normalFreq = 22000;
+    const t = Math.min(1, Math.max(0, this.currentScale));
+    const targetFreq = slowFreq + (normalFreq - slowFreq) * t;
+
+    if (this.musicFilter && this.musicFilter.frequency) {
+      try {
+        const now = ctx.currentTime;
+        this.musicFilter.frequency.cancelScheduledValues(now);
+        this.musicFilter.frequency.linearRampToValueAtTime(targetFreq, now + 0.2);
+      } catch (e) {}
+    }
+
+    // 音高微调：降低到最多 -1200 音分（一个八度），不改播放速率
+    try {
+      const detune = Math.max(-1200, (this.currentScale - 1) * 1200);
+      sound.setDetune(detune);
+    } catch (e) {}
   }
   
   // ========== 视觉/音频效果 ==========

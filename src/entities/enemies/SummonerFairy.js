@@ -59,6 +59,10 @@ export default class SummonerFairy extends Enemy {
     
     // 优先召唤（如果冷却完毕且存活召唤物不超过上限）
     if (this.summonCooldown === 0 && aliveSummons < this.maxSummons && distance <= this.detectionRange) {
+      if (this.scene.createCircleWarning) {
+        this.scene.createCircleWarning(this.pixelX, this.pixelY, 26, 220, 0xaa66ff);
+      }
+      await new Promise(r => this.scene.time.delayedCall(200, r));
       await this.summonMinion();
       return;
     }
@@ -187,42 +191,14 @@ export default class SummonerFairy extends Enemy {
    */
   async shootProjectile(player) {
     this.aiState = 'attack';
-    
-    const direction = this.getDirectionTo(player);
-    const startX = this.sprite.x;
-    const startY = this.sprite.y;
-    const targetX = player.sprite.x;
-    const targetY = player.sprite.y;
-    
-    // 创建弹幕精灵
-    const bullet = this.scene.add.sprite(startX, startY, 'enemyBullet');
-    bullet.setDepth(12);
-    bullet.setTint(0xdd88ff);
-    
-    await new Promise(resolve => {
-      this.scene.tweens.add({
-        targets: bullet,
-        x: targetX,
-        y: targetY,
-        duration: 300,
-        onComplete: () => {
-          bullet.destroy();
-          resolve();
-        }
-      });
-    });
-    
-    // 检查命中
-    if (player.tileX === Math.floor(targetX / TILE_SIZE) && 
-        player.tileY === Math.floor(targetY / TILE_SIZE)) {
-      const damage = player.takeDamage(this.attack);
-      this.scene.events.emit('showDamage', {
-        x: player.sprite.x,
-        y: player.sprite.y - 20,
-        damage: damage,
-        isHeal: false
-      });
-      this.scene.events.emit('showMessage', `${this.name}的弹幕命中！造成 ${damage} 点伤害！`);
+    const sx = this.pixelX, sy = this.pixelY;
+    const tx = player.pixelX, ty = player.pixelY;
+    if (this.scene.createLineWarning) {
+      this.scene.createLineWarning(sx, sy, tx, ty, 200, 0xcc99ff);
+    }
+    await new Promise(r => this.scene.time.delayedCall(180, r));
+    if (this.scene.bulletManager) {
+      this.scene.bulletManager.fireAimed(sx, sy, tx, ty, 140, { damage: this.attack, texture: 'enemyBullet' });
     }
   }
   

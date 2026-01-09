@@ -1759,6 +1759,120 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
+   * A* 寻路：返回从起点到终点（含起点和终点）的 tile 路径
+   * 仅允许 4 向移动；墙体与关闭的门不可通行；越界不可通行
+   */
+  findPath(startX, startY, endX, endY) {
+    if (!this.mapManager || !this.mapData) return null;
+    const width = this.mapData.width;
+    const height = this.mapData.height;
+
+    const inBounds = (x, y) => x >= 0 && x < width && y >= 0 && y < height;
+    const isWalkable = (x, y) => {
+      if (!inBounds(x, y)) return false;
+      if (!this.mapManager.isWalkable(x, y)) return false;
+      const door = this.getDoorAt(x, y);
+      if (door && !door.isOpen) return false;
+      return true;
+    };
+
+    const key = (x, y) => `${x},${y}`;
+    const open = new Map();
+    const closed = new Set();
+    const cameFrom = new Map();
+    const gScore = new Map();
+
+    const h = (x, y) => Math.abs(x - endX) + Math.abs(y - endY);
+
+    const startKey = key(startX, startY);
+    gScore.set(startKey, 0);
+    open.set(startKey, { x: startX, y: startY, f: h(startX, startY) });
+
+    const directions = [ [1,0], [-1,0], [0,1], [0,-1] ];
+
+    while (open.size > 0) {
+      // 取 f 最小的节点
+      let currentKey = null;
+      let currentNode = null;
+      for (const [k, node] of open) {
+        if (!currentNode || node.f < currentNode.f) {
+          currentNode = node;
+          currentKey = k;
+        }
+      }
+      if (!currentNode) break;
+
+      const { x, y } = currentNode;
+      if (x === endX && y === endY) {
+        // 回溯路径
+        const path = [];
+        let ck = currentKey;
+        while (ck) {
+          const [px, py] = ck.split(',').map(Number);
+          path.push({ x: px, y: py });
+          ck = cameFrom.get(ck);
+        }
+        return path.reverse();
+      }
+
+      open.delete(currentKey);
+      closed.add(currentKey);
+
+      for (const [dx, dy] of directions) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const nk = key(nx, ny);
+        if (closed.has(nk)) continue;
+        if (!isWalkable(nx, ny)) continue;
+
+        // 允许终点是玩家所在格，即使被占据
+        const occupiedByEnemy = this.getEnemyAt(nx, ny);
+        if (occupiedByEnemy && !(nx === endX && ny === endY)) continue;
+
+        const tentativeG = (gScore.get(currentKey) || Infinity) + 1;
+        const prevG = gScore.get(nk);
+        if (prevG === undefined || tentativeG < prevG) {
+          cameFrom.set(nk, currentKey);
+          gScore.set(nk, tentativeG);
+          const f = tentativeG + h(nx, ny);
+          open.set(nk, { x: nx, y: ny, f });
+        }
+      }
+    }
+
+    return null; // 无路可达
+  }
+
+  /**
+   * 线预警（像素坐标），自动淡出销毁
+   */
+  createLineWarning(x1, y1, x2, y2, duration = 300, color = 0xffaa55) {
+    const g = this.add.graphics();
+    g.lineStyle(4, color, 0.65);
+    g.beginPath();
+    g.moveTo(x1, y1);
+    g.lineTo(x2, y2);
+    g.strokePath();
+    g.setDepth(40);
+    this.tweens.add({ targets: g, alpha: 0, duration, onComplete: () => { try { g.destroy(); } catch (e) {} } });
+    return g;
+  }
+
+  /**
+   * 圆形/扇形预警（仅圆形版本），自动淡出销毁
+   */
+  createCircleWarning(cx, cy, radius, duration = 400, color = 0xff4444) {
+    const g = this.add.graphics();
+    g.fillStyle(color, 0.25);
+    g.fillCircle(cx, cy, radius);
+    g.lineStyle(2, color, 0.8);
+    g.strokeCircle(cx, cy, radius);
+    g.setDepth(40);
+    this.tweens.add({ targets: g, alpha: 0, duration, onComplete: () => { try { g.destroy(); } catch (e) {} } });
+    return g;
+  }
+
+  /**
    * 结束玩家回合
    */
   endPlayerTurn() {

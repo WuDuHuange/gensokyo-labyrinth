@@ -262,10 +262,11 @@ export default class TimeScaleManager {
   updateMusicRate() {
     const sound = AudioManager ? AudioManager.currentSound : null;
     if (!sound) return;
-    const rate = Math.max(0.4, Math.min(1.0, this.currentScale));
+    // 最慢只降到 90% 速率，避免音乐过度变慢
+    const rate = Math.max(0.9, Math.min(1.0, this.currentScale));
     try { sound.setRate(rate); } catch (e) {}
-    // Detune 让慢速时音色更沉
-    try { sound.setDetune((rate - 1) * 800); } catch (e) {}
+    // 轻微下沉音高，随速率线性变化
+    try { sound.setDetune((rate - 1) * 400); } catch (e) {}
   }
   
   // ========== 视觉/音频效果 ==========

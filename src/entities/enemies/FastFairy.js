@@ -53,6 +53,11 @@ export default class FastFairy extends Enemy {
       
       // 移动后射击
       if (distance <= this.danmakuRange && this.currentCooldown <= 0) {
+        // 扇形预警后散射
+        if (this.scene.createCircleWarning) {
+          this.scene.createCircleWarning(player.pixelX, player.pixelY, 28, 200, 0xff9966);
+        }
+        await new Promise(r => this.scene.time.delayedCall(150, r));
         this.fireDanmaku(player);
       }
       return;

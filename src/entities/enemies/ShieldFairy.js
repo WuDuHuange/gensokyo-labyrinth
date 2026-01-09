@@ -117,6 +117,12 @@ export default class ShieldFairy extends Enemy {
     const originalX = this.sprite.x;
     const originalY = this.sprite.y;
     const direction = this.getDirectionTo(player);
+      const targetX = player.sprite.x;
+      const targetY = player.sprite.y;
+      if (this.scene.createLineWarning) {
+        this.scene.createLineWarning(this.pixelX, this.pixelY, targetX, targetY, 160, 0x99ddee);
+      }
+      await new Promise(r => this.scene.time.delayedCall(140, r));
     
     await new Promise(resolve => {
       this.scene.tweens.add({

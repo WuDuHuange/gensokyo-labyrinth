@@ -139,9 +139,12 @@ export default class Entity {
       if (animate) {
         this.isMoving = true;
         this.moveProgress = 0;
-        
-        // 使用 Superhot 风格的移动时长（玩家更长以便观察）
-        const duration = this.isPlayer ? this.moveDuration : Math.min(this.moveDuration * 0.3, 60);
+        const getScale = () => (this.scene && this.scene.timeManager ? this.scene.timeManager.getScale() : 1);
+        const distance = Phaser.Math.Distance.Between(this.moveStartX, this.moveStartY, targetX, targetY);
+        // 敌人用速度驱动的时长（更平滑）；玩家保留原 moveDuration 设置
+        const duration = this.isPlayer
+          ? this.moveDuration
+          : Phaser.Math.Clamp((distance / Math.max(60, this.speed || 100)) * 600, 80, 260);
         
         // 取消之前的移动 tween
         if (this.moveTween) {
@@ -154,6 +157,8 @@ export default class Entity {
           duration: duration,
           ease: 'Quad.easeOut',
           onUpdate: () => {
+            // 跟随时间缩放
+            this.moveTween.timeScale = getScale();
             // 实时更新像素位置和精灵位置
             this.pixelX = Phaser.Math.Linear(this.moveStartX, this.moveEndX, this.moveProgress);
             this.pixelY = Phaser.Math.Linear(this.moveStartY, this.moveEndY, this.moveProgress);
@@ -168,6 +173,8 @@ export default class Entity {
             resolve();
           }
         });
+        // 初始应用时间缩放
+        this.moveTween.timeScale = getScale();
       } else {
         // 瞬移
         this.pixelX = targetX;

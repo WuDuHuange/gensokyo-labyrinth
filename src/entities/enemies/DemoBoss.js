@@ -1,7 +1,6 @@
 import Enemy from '../Enemy.js';
 import SmallCrystal from './SmallCrystal.js';
 import { TILE_SIZE } from '../../config/gameConfig.js';
-import { TileType } from '../../systems/MapGenerator.js';
 
 export default class DemoBoss extends Enemy {
   constructor(scene, x, y) {
@@ -27,7 +26,6 @@ export default class DemoBoss extends Enemy {
     // 技能参数
     this.maxSmall = 6;
     this.burstDamage = 12;
-    this.fanDamage = 10;
     this.burstRange = 8;
     this.laserDamage = 18;
     this.bombardDamage = 25;
@@ -42,7 +40,35 @@ export default class DemoBoss extends Enemy {
     this.shieldCooldown = 0;
     
     // 地面标记（阶段3轰炸用）
-    this.pendingBombs = []; // { x, y, turnsLeft, graphic }
+    this.pendingBombs = []; // { x, y, turnsLeft }
+  }
+
+  wait(ms) {
+    return new Promise(resolve => this.scene.time.delayedCall(ms, resolve));
+  }
+
+  getAxisDirectionTo(player) {
+    const dx = player.tileX - this.tileX;
+    const dy = player.tileY - this.tileY;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return { x: dx >= 0 ? 1 : -1, y: 0 };
+    }
+    return { x: 0, y: dy >= 0 ? 1 : -1 };
+  }
+
+  traceLaserPath(dirX, dirY, maxSteps = 14) {
+    const path = [];
+    let x = this.tileX;
+    let y = this.tileY;
+    for (let i = 0; i < maxSteps; i++) {
+      x += dirX;
+      y += dirY;
+      if (!this.scene.mapManager.isWalkable(x, y)) break;
+      const door = this.scene.getDoorAt ? this.scene.getDoorAt(x, y) : null;
+      path.push({ x, y });
+      if (door && !door.isOpen) break;
+    }
+    return path;
   }
 
   /**
@@ -303,90 +329,48 @@ export default class DemoBoss extends Enemy {
    */
   async fireLaser(player) {
     this.scene.events.emit('showMessage', '水晶核心蓄力中...');
-    
-    // 确定激光方向（朝向玩家）
-    const dx = player.tileX - this.tileX;
-    const dy = player.tileY - this.tileY;
-    
-    // 简化为四个基本方向
-    let laserDx = 0, laserDy = 0;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      laserDx = dx > 0 ? 1 : -1;
-    } else {
-      laserDy = dy > 0 ? 1 : -1;
+
+    const dir = this.getAxisDirectionTo(player);
+    const path = this.traceLaserPath(dir.x, dir.y, 15);
+    const end = path[path.length - 1] || { x: this.tileX + dir.x, y: this.tileY + dir.y };
+    const startPx = this.pixelX;
+    const startPy = this.pixelY;
+    const endPx = end.x * TILE_SIZE + TILE_SIZE / 2;
+    const endPy = end.y * TILE_SIZE + TILE_SIZE / 2;
+
+    if (this.scene.createLineWarning) {
+      this.scene.createLineWarning(startPx, startPy, endPx, endPy, 260, 0x00ffff);
     }
-    
-    // 预警线（红色虚线）
-    const warningLine = this.scene.add.graphics();
-    warningLine.lineStyle(4, 0xff0000, 0.5);
-    let wx = this.tileX, wy = this.tileY;
-    warningLine.moveTo(wx * TILE_SIZE + TILE_SIZE / 2, wy * TILE_SIZE + TILE_SIZE / 2);
-    for (let i = 0; i < 15; i++) {
-      wx += laserDx;
-      wy += laserDy;
-      if (!this.scene.mapManager.isWalkable(wx, wy)) break;
+
+    await this.wait(240);
+
+    const bm = this.scene.bulletManager;
+    if (!bm || path.length === 0) return;
+
+    const angle = Math.atan2(dir.y, dir.x);
+    const speed = this.phase >= 3 ? 320 : 240;
+
+    // 沿路径布置多段激光弹幕，形成一道可以擦弹的高速光束
+    for (let i = 0; i < path.length; i++) {
+      const t = path[i];
+      const px = t.x * TILE_SIZE + TILE_SIZE / 2;
+      const py = t.y * TILE_SIZE + TILE_SIZE / 2;
+      bm.fire(px, py, angle, speed, { damage: this.laserDamage, owner: this, texture: 'enemyBullet' });
     }
-    warningLine.lineTo(wx * TILE_SIZE + TILE_SIZE / 2, wy * TILE_SIZE + TILE_SIZE / 2);
-    warningLine.setDepth(45);
-    
-    // 闪烁预警
-    this.scene.tweens.add({
-      targets: warningLine,
-      alpha: { from: 0.3, to: 0.8 },
-      duration: 200,
-      yoyo: true,
-      repeat: 2
-    });
-    
-    await new Promise(r => this.scene.time.delayedCall(600, r));
-    warningLine.destroy();
-    
-    // 发射激光
-    const laserGraphic = this.scene.add.graphics();
-    laserGraphic.fillStyle(0x00ffff, 0.8);
-    
-    let lx = this.tileX, ly = this.tileY;
-    const hitPositions = [];
-    
-    for (let i = 0; i < 15; i++) {
-      lx += laserDx;
-      ly += laserDy;
-      if (!this.scene.mapManager.isWalkable(lx, ly)) break;
-      hitPositions.push({ x: lx, y: ly });
-      
-      // 绘制激光
-      laserGraphic.fillRect(
-        lx * TILE_SIZE + 8, ly * TILE_SIZE + 8,
-        TILE_SIZE - 16, TILE_SIZE - 16
-      );
-    }
-    laserGraphic.setDepth(46);
-    
-    // 激光造成伤害
-    for (const pos of hitPositions) {
-      if (player.tileX === pos.x && player.tileY === pos.y) {
-        const dmg = player.takeDamage(this.laserDamage);
-        this.scene.events.emit('showDamage', {
-          x: player.sprite.x, y: player.sprite.y - 20,
-          damage: dmg, isHeal: false
-        });
-      }
-      // 也可以伤害小晶体
-      const enemy = this.scene.getEnemyAt(pos.x, pos.y);
-      if (enemy && enemy !== this) {
-        enemy.takeDamage(this.laserDamage);
-      }
-    }
-    
-    // 激光消散
-    this.scene.tweens.add({
-      targets: laserGraphic,
-      alpha: 0,
-      duration: 300,
-      onComplete: () => laserGraphic.destroy()
-    });
-    
-    await new Promise(r => this.scene.time.delayedCall(200, r));
+
+    // 视觉残留
+    try {
+      const beam = this.scene.add.graphics();
+      beam.lineStyle(6, 0x66f0ff, 0.65);
+      beam.beginPath();
+      beam.moveTo(startPx, startPy);
+      beam.lineTo(endPx, endPy);
+      beam.strokePath();
+      beam.setDepth(46);
+      this.scene.tweens.add({ targets: beam, alpha: 0, duration: 200, onComplete: () => { try { beam.destroy(); } catch (e) {} } });
+    } catch (e) {}
+
+    await this.wait(120);
   }
 
   /**
@@ -415,29 +399,22 @@ export default class DemoBoss extends Enemy {
     
     // 创建预警标记
     for (const pos of positions) {
-      const warning = this.scene.add.circle(
-        pos.x * TILE_SIZE + TILE_SIZE / 2,
-        pos.y * TILE_SIZE + TILE_SIZE / 2,
-        14, 0xff0000, 0.3
-      );
-      warning.setStrokeStyle(2, 0xff0000);
-      warning.setDepth(40);
-      
-      // 脉冲动画
-      this.scene.tweens.add({
-        targets: warning,
-        scale: { from: 0.8, to: 1.2 },
-        alpha: { from: 0.3, to: 0.6 },
-        duration: 300,
-        yoyo: true,
-        repeat: -1
-      });
-      
+      const px = pos.x * TILE_SIZE + TILE_SIZE / 2;
+      const py = pos.y * TILE_SIZE + TILE_SIZE / 2;
+      if (this.scene.createCircleWarning) {
+        this.scene.createCircleWarning(px, py, 18, 420, 0xff5533);
+      } else {
+        const warning = this.scene.add.circle(px, py, 14, 0xff0000, 0.3);
+        warning.setStrokeStyle(2, 0xff0000);
+        warning.setDepth(40);
+        this.scene.tweens.add({ targets: warning, scale: { from: 0.8, to: 1.2 }, alpha: { from: 0.3, to: 0.6 }, duration: 300, yoyo: true, repeat: -1 });
+        this.scene.time.delayedCall(450, () => { try { warning.destroy(); } catch (e) {} });
+      }
+
       this.pendingBombs.push({
         x: pos.x,
         y: pos.y,
-        turnsLeft: 2,
-        graphic: warning
+        turnsLeft: 2
       });
     }
   }
@@ -468,47 +445,32 @@ export default class DemoBoss extends Enemy {
    * 炸弹爆炸
    */
   async explodeBomb(bomb) {
-    // 移除预警
-    if (bomb.graphic) {
-      this.scene.tweens.killTweensOf(bomb.graphic);
-      bomb.graphic.destroy();
-    }
-    
     // 爆炸特效
-    const explosion = this.scene.add.circle(
-      bomb.x * TILE_SIZE + TILE_SIZE / 2,
-      bomb.y * TILE_SIZE + TILE_SIZE / 2,
-      8, 0xff6600, 0.9
-    );
+    const cx = bomb.x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = bomb.y * TILE_SIZE + TILE_SIZE / 2;
+
+    const explosion = this.scene.add.circle(cx, cy, 10, 0xff6600, 0.9);
     explosion.setDepth(50);
-    
-    this.scene.tweens.add({
-      targets: explosion,
-      radius: 20,
-      alpha: 0,
-      duration: 300,
-      onComplete: () => explosion.destroy()
-    });
-    
-    // 检查玩家是否在爆炸范围（当前格+相邻格）
+    this.scene.tweens.add({ targets: explosion, radius: 24, alpha: 0, duration: 260, onComplete: () => explosion.destroy() });
+
+    // 直接范围伤害
     const player = this.scene.player;
     const dist = Math.abs(player.tileX - bomb.x) + Math.abs(player.tileY - bomb.y);
-    
+
     if (dist === 0) {
-      // 直接命中
       const dmg = player.takeDamage(this.bombardDamage);
-      this.scene.events.emit('showDamage', {
-        x: player.sprite.x, y: player.sprite.y - 20,
-        damage: dmg, isHeal: false
-      });
+      this.scene.events.emit('showDamage', { x: player.sprite.x, y: player.sprite.y - 20, damage: dmg, isHeal: false });
     } else if (dist === 1) {
-      // 溅射伤害（半伤）
       const dmg = player.takeDamage(Math.floor(this.bombardDamage / 2));
-      this.scene.events.emit('showDamage', {
-        x: player.sprite.x, y: player.sprite.y - 20,
-        damage: dmg, isHeal: false
-      });
+      this.scene.events.emit('showDamage', { x: player.sprite.x, y: player.sprite.y - 20, damage: dmg, isHeal: false });
     }
+
+    // 弹幕溅射（便于擦弹/躲避）
+    try {
+      if (this.scene.bulletManager) {
+        this.scene.bulletManager.fireRing(cx, cy, 10, 140, { damage: Math.floor(this.bombardDamage * 0.6), owner: this, texture: 'enemyBullet' });
+      }
+    } catch (e) {}
   }
 
   async summonSmallCrystals() {
@@ -524,6 +486,16 @@ export default class DemoBoss extends Enemy {
       if (this.scene.player && this.scene.player.tileX === rx && this.scene.player.tileY === ry) continue;
       positions.push({ x: rx, y: ry });
     }
+
+    // 召唤预警
+    for (const p of positions) {
+      const px = p.x * TILE_SIZE + TILE_SIZE / 2;
+      const py = p.y * TILE_SIZE + TILE_SIZE / 2;
+      if (this.scene.createCircleWarning) {
+        this.scene.createCircleWarning(px, py, 16, 320, 0x66ddff);
+      }
+    }
+    await this.wait(220);
 
     for (const p of positions) {
       const sc = new SmallCrystal(this.scene, p.x, p.y);
@@ -546,143 +518,30 @@ export default class DemoBoss extends Enemy {
   }
 
   async fireBurstAtPlayer(player) {
-    // 从 boss 中心向八个方向发射投射物，其中随机一颗是反弹弹
-    const dirs = [ {x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1},{x:1,y:1},{x:-1,y:-1},{x:1,y:-1},{x:-1,y:1} ];
-    const bounceIdx = Math.floor(Math.random() * dirs.length);
-    const promises = dirs.map((d, i) => this.fireProjectileAlong(d.x, d.y, i === bounceIdx));
-    await Promise.all(promises);
-  }
+    this.aiState = 'attack';
+    const bm = this.scene.bulletManager;
+    if (!bm) return;
 
-  async fireProjectileAlong(dx, dy, isBounce = false) {
-    const path = [];
-    let x = this.tileX; let y = this.tileY;
-    let hitEntity = false;
-    for (let i = 0; i < this.burstRange; i++) {
-      x += dx; y += dy;
-      if (!this.scene.mapManager.isWalkable(x, y)) {
-        // 只有反弹弹撞墙时才触发扇形反射
-        if (isBounce) this.spawnFanAt(x, y, dx, dy);
-        break;
-      }
-      path.push({ x, y });
-      // 反弹弹碰到实体也会触发反射
-      if (isBounce) {
-        const hasPlayer = this.scene.player && this.scene.player.tileX === x && this.scene.player.tileY === y;
-        const hasEnemy = this.scene.getEnemyAt(x, y) && this.scene.getEnemyAt(x, y) !== this;
-        const hasDoor = this.scene.getDoorAt && this.scene.getDoorAt(x, y);
-        if (hasPlayer || hasEnemy || hasDoor) {
-          hitEntity = true;
-        }
-      }
+    const originX = this.pixelX;
+    const originY = this.pixelY;
+    const baseAngle = this.getAngleToPlayer(player);
+
+    if (this.scene.createCircleWarning) {
+      this.scene.createCircleWarning(originX, originY, 22, 200, 0x66ccff);
+    }
+    await this.wait(180);
+
+    const spreadCount = this.phase >= 2 ? 7 : 5;
+    const ringCount = this.phase >= 3 ? 12 : 8;
+    const speed = this.phase >= 3 ? 200 : 150;
+
+    bm.fireSpread(originX, originY, baseAngle, spreadCount, Math.PI / 3, speed, { damage: this.burstDamage, owner: this, texture: 'enemyBullet' });
+    bm.fireRing(originX, originY, ringCount, speed * 0.8, { damage: Math.max(6, this.burstDamage - 2), owner: this, texture: 'enemyBullet' });
+    if (this.phase >= 2) {
+      bm.fireAimed(originX, originY, player.pixelX, player.pixelY, speed + 40, { damage: this.burstDamage + 2, owner: this, texture: 'enemyBullet' });
     }
 
-    // 依次移动视觉弹幕并在经过格子时造成伤害
-    let triggeredFan = false;
-    for (let i = 0; i < path.length; i++) {
-      const t = path[i];
-      // 视觉：小圆点（反弹弹用粉色，普通弹用蓝色）
-      try {
-        const color = isBounce ? 0xff66cc : 0x66ccff;
-        const dot = this.scene.add.circle(t.x * TILE_SIZE + TILE_SIZE / 2, t.y * TILE_SIZE + TILE_SIZE / 2, isBounce ? 8 : 6, color);
-        dot.setDepth(35);
-        if (isBounce) {
-          // 反弹弹有发光效果
-          const glow = this.scene.add.circle(t.x * TILE_SIZE + TILE_SIZE / 2, t.y * TILE_SIZE + TILE_SIZE / 2, 14, 0xff88dd, 0.3);
-          glow.setDepth(34);
-          this.scene.tweens.add({ targets: glow, alpha: 0, scale: 1.5, duration: 200, delay: i * 40, onComplete: () => { try { glow.destroy(); } catch (e) {} } });
-        }
-        this.scene.tweens.add({ targets: dot, alpha: { from: 1, to: 0 }, duration: 280, delay: i * 40, onComplete: () => { try { dot.destroy(); } catch (e) {} } });
-      } catch (e) {}
-
-      // 造成伤害：玩家或敌人或门
-      let hitSomething = false;
-      try {
-        if (this.scene.player && this.scene.player.tileX === t.x && this.scene.player.tileY === t.y) {
-          const dmg = this.scene.player.takeDamage(this.burstDamage);
-          this.scene.events.emit('showDamage', { x: this.scene.player.sprite.x, y: this.scene.player.sprite.y - 20, damage: dmg, isHeal: false });
-          hitSomething = true;
-        }
-        const enemy = this.scene.getEnemyAt(t.x, t.y);
-        if (enemy && enemy !== this) { const d = enemy.takeDamage(this.burstDamage); this.scene.events.emit('showDamage', { x: enemy.sprite.x, y: enemy.sprite.y - 20, damage: d, isHeal: false }); if (!enemy.isAlive) this.scene.removeEnemy(enemy); hitSomething = true; }
-        if (this.scene.getDoorAt) {
-          const door = this.scene.getDoorAt(t.x, t.y);
-          if (door) { const dd = door.takeDamage(this.burstDamage); this.scene.events.emit('showDamage', { x: door.sprite ? door.sprite.x : t.x * TILE_SIZE, y: door.sprite ? door.sprite.y - 8 : t.y * TILE_SIZE, damage: dd, isHeal: false }); hitSomething = true; }
-        }
-      } catch (e) {}
-
-      // 反弹弹碰到实体后触发扇形反射并停止
-      if (isBounce && hitSomething && !triggeredFan) {
-        triggeredFan = true;
-        this.spawnFanAt(t.x, t.y, dx, dy);
-        break;
-      }
-
-      // 延迟以模拟弹幕推进
-      await new Promise(resolve => this.scene.time.delayedCall(40, resolve));
-    }
-  }
-
-  spawnFanAt(x, y, inDx, inDy) {
-    // 反弹：从撞击点向**反方向**发射三条扇形子弹
-    // 反方向 = -inDx, -inDy
-    const spread = [];
-    const outDx = -inDx;
-    const outDy = -inDy;
-
-    if (outDx === 0 || outDy === 0) {
-      // 正交方向反弹 -> 主方向 + 左右偏移
-      if (outDx !== 0) {
-        spread.push({ x: outDx, y: 0 });
-        spread.push({ x: outDx, y: -1 });
-        spread.push({ x: outDx, y: 1 });
-      } else {
-        spread.push({ x: 0, y: outDy });
-        spread.push({ x: -1, y: outDy });
-        spread.push({ x: 1, y: outDy });
-      }
-    } else {
-      // 斜向反弹 -> 三个方向组合
-      spread.push({ x: outDx, y: outDy });
-      spread.push({ x: outDx, y: 0 });
-      spread.push({ x: 0, y: outDy });
-    }
-
-    // 从撞击点的前一格（可通行格）开始发射
-    const startX = x - inDx;
-    const startY = y - inDy;
-
-    for (const s of spread) {
-      this.fireSmallStraight(s.x, s.y, startX, startY);
-    }
-  }
-
-  async fireSmallStraight(dx, dy, sx, sy) {
-    let x = sx, y = sy;
-    const steps = 4;
-    for (let i = 0; i < steps; i++) {
-      x += dx; y += dy;
-      if (!this.scene.mapManager.isWalkable(x, y)) break;
-      try {
-        const dot = this.scene.add.circle(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2, 6, 0xffcc88);
-        dot.setDepth(36);
-        this.scene.tweens.add({ targets: dot, alpha: { from: 1, to: 0 }, duration: 260, delay: i * 60, onComplete: () => { try { dot.destroy(); } catch (e) {} } });
-      } catch (e) {}
-
-      try {
-        if (this.scene.player && this.scene.player.tileX === x && this.scene.player.tileY === y) {
-          const dmg = this.scene.player.takeDamage(this.fanDamage);
-          this.scene.events.emit('showDamage', { x: this.scene.player.sprite.x, y: this.scene.player.sprite.y - 20, damage: dmg, isHeal: false });
-        }
-        const enemy = this.scene.getEnemyAt(x, y);
-        if (enemy && enemy !== this) { const d = enemy.takeDamage(this.fanDamage); this.scene.events.emit('showDamage', { x: enemy.sprite.x, y: enemy.sprite.y - 20, damage: d, isHeal: false }); if (!enemy.isAlive) this.scene.removeEnemy(enemy); }
-        if (this.scene.getDoorAt) {
-          const door = this.scene.getDoorAt(x, y);
-          if (door) { const dd = door.takeDamage(this.fanDamage); this.scene.events.emit('showDamage', { x: door.sprite ? door.sprite.x : x * TILE_SIZE, y: door.sprite ? door.sprite.y - 8 : y * TILE_SIZE, damage: dd, isHeal: false }); }
-        }
-      } catch (e) {}
-
-      await new Promise(resolve => this.scene.time.delayedCall(60, resolve));
-    }
+    await this.wait(80);
   }
 
   // 覆盖死亡：触发 boss 被击败事件，清理残留效果

@@ -58,6 +58,10 @@ export default class DanmakuFairy extends Enemy {
       await this.retreat(player);
     } else if (distance <= this.danmakuRange && this.currentCooldown <= 0) {
       // 在射程内且冷却完毕，发射弹幕
+      if (this.scene.createCircleWarning) {
+        this.scene.createCircleWarning(player.pixelX, player.pixelY, 36, 250, 0xff8844);
+      }
+      await new Promise(r => this.scene.time.delayedCall(200, r));
       this.fireDanmaku(player);
       this.scene.events.emit('showMessage', `${this.name} 发射了扇形弹幕！`);
     } else if (distance > this.danmakuRange && distance <= this.detectionRange) {

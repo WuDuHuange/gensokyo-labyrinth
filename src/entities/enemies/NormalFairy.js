@@ -50,10 +50,15 @@ export default class NormalFairy extends Enemy {
 
     // 在弹幕射程内发射自机狙
     if (distance <= this.danmakuRange && this.currentCooldown <= 0) {
-      // 下回合预警
-      if (this.currentCooldown === 1) {
-        this.showChargingEffect();
+      // 发射前短暂预警
+      const sx = this.pixelX;
+      const sy = this.pixelY;
+      const tx = player.pixelX;
+      const ty = player.pixelY;
+      if (this.scene.createLineWarning) {
+        this.scene.createLineWarning(sx, sy, tx, ty, 200, 0xffcc66);
       }
+      await new Promise(r => this.scene.time.delayedCall(180, r));
       this.fireDanmaku(player);
       return;
     }

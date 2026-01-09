@@ -132,18 +132,32 @@ export default class Enemy extends Entity {
   async chasePlayer(player) {
     this.aiState = 'chase';
     
-    const direction = this.getDirectionTo(player);
-    
-    // 尝试向玩家移动
-    // 优先选择距离更近的方向
-    // 如果未锁定玩家且有房间信息，限制可移动格子保持在房间范围
+    const path = this.scene.findPath ? this.scene.findPath(this.tileX, this.tileY, player.tileX, player.tileY) : null;
+    if (path && path.length > 1) {
+      // 路径第一个是当前位置，第二个为下一步
+      const next = path[1];
+      await this.moveTo(next.x, next.y);
+      return;
+    }
+
+    // fallback: 原优先级格子选择
     const restrictToRoom = !!this.room && !this.lockedOnPlayer;
     const moves = this.getPossibleMoves(player, restrictToRoom);
-    
     if (moves.length > 0) {
-      // 选择最优移动
       const bestMove = moves[0];
       await this.moveTo(bestMove.x, bestMove.y);
+    }
+  }
+
+  /**
+   * 沿路径逐步移动（包含起点，需 >=2 才有移动）
+   */
+  async moveAlongPath(path) {
+    if (!path || path.length < 2) return;
+    // 跳过第 0 个（当前格）
+    for (let i = 1; i < path.length; i++) {
+      const step = path[i];
+      await this.moveTo(step.x, step.y);
     }
   }
 

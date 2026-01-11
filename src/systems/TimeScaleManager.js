@@ -281,8 +281,10 @@ export default class TimeScaleManager {
 
     // 仅下沉音高（detune），不改变播放速率
     try {
-      const detune = Math.max(-1200, (this.currentScale - 1) * 1200);
-      sound.setDetune(detune);
+      // 已禁用 detune 调用：若启用可能被 Phaser/浏览器映射为 playbackRate 修改，
+      // 导致音乐节奏变慢（我们只希望音色变闷）。保留这里作为注释记录。
+      // const detune = Math.max(-1200, (this.currentScale - 1) * 1200);
+      // sound.setDetune(detune);
     } catch (e) {}
   }
   

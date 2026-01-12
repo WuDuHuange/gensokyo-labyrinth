@@ -222,6 +222,10 @@ export default class GameScene extends Phaser.Scene {
     
     // 创建玩家
     this.createPlayer();
+    // Dash 冷却进度条 UI（固定屏幕）
+    this.dashCooldownBar = this.add.graphics();
+    this.dashCooldownBar.setScrollFactor(0);
+    this.dashCooldownBar.setDepth(60);
     
     // ========== 初始化擦弹和决死系统（需要玩家实例） ==========
     this.grazeSystem = new GrazeSystem(this);
@@ -1088,6 +1092,8 @@ export default class GameScene extends Phaser.Scene {
     
     // 原地狙击键（由 Space 换为 F，避免与符卡操作冲突）
     this.snipeKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
+    // 位移技能（空格键）
+    this.dashKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     
     // 自由视角键
     this.freeLookKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TAB);
@@ -1227,8 +1233,16 @@ export default class GameScene extends Phaser.Scene {
         }
       }
 
+      // 检测位移按键（空格）
+      if (Phaser.Input.Keyboard.JustDown(this.dashKey)) {
+        try { this.player.tryDash(); } catch (e) {}
+      }
+
       // 更新自由移动（每帧）
       this.player.updateFreeMove(delta);
+
+      // 更新玩家技能冷却
+      try { this.player.updateSkills(delta); } catch (e) {}
     }
 
     // 基于时间缩放的自动射击节奏
@@ -1274,6 +1288,32 @@ export default class GameScene extends Phaser.Scene {
     }
     
     if (!this.player || !this.player.isAlive) return;
+    // 绘制位移技能冷却进度条（左下角）
+    try {
+      if (this.dashCooldownBar && this.player) {
+        const w = 80, h = 10;
+        const pad = 12;
+        const x = pad;
+        const y = this.scale.height - h - pad;
+
+        this.dashCooldownBar.clear();
+        // 背景
+        this.dashCooldownBar.fillStyle(0x222222, 0.8);
+        this.dashCooldownBar.fillRoundedRect(x, y, w, h, 3);
+
+        // 进度（从 0 到 1）
+        const cooldown = Math.max(0, this.player.dashCooldown || 0);
+        const ratio = 1 - Math.min(1, cooldown / (this.player.dashCooldownMax || 1));
+        // 颜色：冷却中为橙色，准备好为青色
+        const color = ratio >= 1 ? 0x00ffcc : 0xff9933;
+        this.dashCooldownBar.fillStyle(color, 0.95);
+        this.dashCooldownBar.fillRoundedRect(x + 1, y + 1, (w - 2) * ratio, h - 2, 2);
+
+        // 边框
+        this.dashCooldownBar.lineStyle(1, 0xffffff, 0.18);
+        this.dashCooldownBar.strokeRoundedRect(x, y, w, h, 3);
+      }
+    } catch (e) {}
     
     // 决死时刻中只允许符卡输入
     if (this.lastGaspSystem && this.lastGaspSystem.isInLastGasp()) {

@@ -263,12 +263,16 @@ export default class Entity {
   }
 
   /**
-   * 获取到目标的距离（曼哈顿距离）
+   * 获取到目标的距离（基于像素的实际距离，转换为格子单位）
    * @param {Entity} target 
    * @returns {number}
    */
   getDistanceTo(target) {
-    return Math.abs(this.tileX - target.tileX) + Math.abs(this.tileY - target.tileY);
+    // 使用像素坐标计算真实距离，以适配非格子步进的移动，然后换算为格子单位
+    const dx = this.pixelX - target.pixelX;
+    const dy = this.pixelY - target.pixelY;
+    const pixelDist = Math.sqrt(dx * dx + dy * dy);
+    return pixelDist / TILE_SIZE;
   }
 
   /**

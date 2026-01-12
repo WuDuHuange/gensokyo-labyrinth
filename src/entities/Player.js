@@ -53,6 +53,12 @@ export default class Player extends Entity {
     this.velocity = { x: 0, y: 0 }; // 当前速度向量
     this.isMovingFree = false;    // 是否正在自由移动
 
+    // ========== 位移技能（冲刺/闪现） ==========
+    this.dashCooldown = 0;       // 当前冷却（ms），<=0 表示准备就绪
+    this.dashCooldownMax = 2200; // 冷却时长（ms）
+    this.dashRangeTiles = 3;     // 最大位移格数
+    this.dashInvulnerable = false; // dash 时是否短暂无敌（目前未启用）
+
     // 创建判定点显示（擦弹系统用）
     this.createHitboxIndicator();
   }
@@ -336,6 +342,96 @@ export default class Player extends Entity {
         }
       } catch (e) {}
     }
+  }
+
+  /**
+   * 更新技能冷却（每帧调用）
+   * @param {number} delta ms
+   */
+  updateSkills(delta) {
+    if (this.dashCooldown > 0) {
+      this.dashCooldown = Math.max(0, this.dashCooldown - delta);
+    }
+  }
+
+  /**
+   * 主动触发位移技能（空格键触发）
+   * 将玩家沿朝向瞬移到最近的可通行格，最多移动 dashRangeTiles
+   */
+  async tryDash() {
+    if (!this.isAlive) return false;
+    if (this.dashCooldown > 0) return false; // 未就绪
+
+    // 必须有朝向
+    const dx = this.facing.x || 0;
+    const dy = this.facing.y || 0;
+    if (dx === 0 && dy === 0) return false;
+
+    const maxSteps = this.dashRangeTiles;
+    let targetTileX = this.tileX;
+    let targetTileY = this.tileY;
+    let found = false;
+
+    // 沿朝向逐格查找最后一个可通行格
+    for (let step = 1; step <= maxSteps; step++) {
+      const tx = this.tileX + dx * step;
+      const ty = this.tileY + dy * step;
+      if (!this.scene.canMoveTo(tx, ty)) break;
+      // 避免传送到有敌人的格子
+      if (this.scene.getEnemyAt(tx, ty)) break;
+      targetTileX = tx;
+      targetTileY = ty;
+      found = true;
+    }
+
+    if (!found) return false;
+
+    // 扣冷却
+    this.dashCooldown = this.dashCooldownMax;
+
+    // 视觉效果：残影
+    if (this.scene.screenEffects) this.scene.screenEffects.createAfterImage(this.sprite, 0.5, 220);
+
+    // 小位移动画（短时间补间）
+    const targetX = targetTileX * TILE_SIZE + TILE_SIZE / 2;
+    const targetY = targetTileY * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY;
+
+    // 通知时间管理器开始行动（如果存在）
+    if (this.scene.timeManager) this.scene.timeManager.startAction();
+
+    await new Promise(resolve => {
+      try {
+        this.scene.tweens.add({
+          targets: this.sprite,
+          x: targetX,
+          y: targetY,
+          duration: 120,
+          ease: 'Quad.easeOut',
+          onComplete: resolve
+        });
+      } catch (e) { // 若 tween 失败则直接瞬移
+        this.sprite.setPosition(targetX, targetY);
+        resolve();
+      }
+    });
+
+    // 更新玩家像素与 tile 坐标
+    this.pixelX = targetX;
+    this.pixelY = targetY;
+    this.tileX = targetTileX;
+    this.tileY = targetTileY;
+    this.sprite.setPosition(this.pixelX, this.pixelY);
+    this.updateHitboxIndicator();
+
+    // 触发踩踏/拾取/陷阱等逻辑
+    try { if (this.scene.itemSystem) this.scene.itemSystem.tryPickupAt(this.tileX, this.tileY, this); } catch (e) {}
+    try { this.scene.checkTraps(this); } catch (e) {}
+    try { this.scene.checkEnterBossRoom(); } catch (e) {}
+    try { this.scene.checkEnterCombatRoom(); } catch (e) {}
+
+    if (this.scene.timeManager) this.scene.timeManager.endAction();
+
+    return true;
   }
 
   /**

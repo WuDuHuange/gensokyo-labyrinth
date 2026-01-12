@@ -136,7 +136,7 @@ export default class Enemy extends Entity {
     if (path && path.length > 1) {
       // 路径第一个是当前位置，第二个为下一步
       const next = path[1];
-      await this.moveTo(next.x, next.y);
+      await this.moveTo(next.x, next.y, false);
       return;
     }
 
@@ -145,7 +145,7 @@ export default class Enemy extends Entity {
     const moves = this.getPossibleMoves(player, restrictToRoom);
     if (moves.length > 0) {
       const bestMove = moves[0];
-      await this.moveTo(bestMove.x, bestMove.y);
+      await this.moveTo(bestMove.x, bestMove.y, false);
     }
   }
 
@@ -157,7 +157,7 @@ export default class Enemy extends Entity {
     // 跳过第 0 个（当前格）
     for (let i = 1; i < path.length; i++) {
       const step = path[i];
-      await this.moveTo(step.x, step.y);
+      await this.moveTo(step.x, step.y, false);
     }
   }
 
@@ -237,7 +237,7 @@ export default class Enemy extends Entity {
         }
 
         if (this.scene.canMoveTo(newX, newY) && !this.scene.getEnemyAt(newX, newY)) {
-          await this.moveTo(newX, newY);
+          await this.moveTo(newX, newY, false);
           break;
         }
       }

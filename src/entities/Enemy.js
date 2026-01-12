@@ -31,10 +31,9 @@ export default class Enemy extends Entity {
     this.currentCooldown = 0;
     this.isCharging = false; // 是否正在充能
 
-    // 自由移动参数（像素移动而非格子跳步）
+    // 自由移动参数（像素移动，完全脱离格子步进）
     this.moveSpeed = config.moveSpeed || this.speed || 100; // 像素/秒
-    this.velocity = { x: 0, y: 0 };
-    this.moveTarget = null; // {tileX, tileY}
+    this.moveTarget = null; // { x, y } 像素坐标
   }
 
   /**
@@ -93,31 +92,12 @@ export default class Enemy extends Entity {
       await this.idle();
     }
   }
-
-  /**
-   * 攻击玩家
-   * @param {Player} player 
-   */
-  async attackPlayer(player) {
-    this.aiState = 'attack';
-    // 攻击前先停下
-    this.stopMovement();
-    
-    // 攻击动画
-    const dx = player.tileX - this.tileX;
-    const dy = player.tileY - this.tileY;
-    
-    await new Promise(resolve => {
-      this.scene.tweens.add({
-        targets: this.sprite,
-        x: this.sprite.x + dx * 8,
-        y: this.sprite.y + dy * 8,
-        duration: 50,
-        yoyo: true,
-        onComplete: resolve
-      });
-    });
-    
+        // 随机方向小位移（0.6格距离），保持像素移动
+        const angle = Math.random() * Math.PI * 2;
+        const distance = TILE_SIZE * 0.6;
+        const targetX = this.pixelX + Math.cos(angle) * distance;
+        const targetY = this.pixelY + Math.sin(angle) * distance;
+        this.setMoveTargetPixel(targetX, targetY);
     // 造成伤害
     const damage = player.takeDamage(this.attack);
     
@@ -139,21 +119,16 @@ export default class Enemy extends Entity {
   async chasePlayer(player) {
     this.aiState = 'chase';
     
+    // 直接朝向玩家像素位置；若存在路径finder则使用下一节点的像素中心作为引导
     const path = this.scene.findPath ? this.scene.findPath(this.tileX, this.tileY, player.tileX, player.tileY) : null;
     if (path && path.length > 1) {
-      // 路径第一个是当前位置，第二个为下一步
       const next = path[1];
-      this.setMoveTarget(next.x, next.y);
+      this.setMoveTargetPixel(next.x * TILE_SIZE + TILE_SIZE / 2, next.y * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY);
       return;
     }
 
-    // fallback: 原优先级格子选择
-    const restrictToRoom = !!this.room && !this.lockedOnPlayer;
-    const moves = this.getPossibleMoves(player, restrictToRoom);
-    if (moves.length > 0) {
-      const bestMove = moves[0];
-      this.setMoveTarget(bestMove.x, bestMove.y);
-    }
+    // 无路径时直接朝玩家像素位置追击
+    this.setMoveTargetPixel(player.pixelX, player.pixelY);
   }
 
   /**
@@ -164,7 +139,7 @@ export default class Enemy extends Entity {
     // 跳过第 0 个（当前格）
     for (let i = 1; i < path.length; i++) {
       const step = path[i];
-      this.setMoveTarget(step.x, step.y);
+      this.setMoveTargetPixel(step.x * TILE_SIZE + TILE_SIZE / 2, step.y * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY);
     }
   }
 
@@ -177,49 +152,14 @@ export default class Enemy extends Entity {
    * 获取可能的移动选项，按优先级排序
    * 可选参数：restrictToRoom - 是否限制返回仅在所属房间内的移动
    */
-  getPossibleMoves(player, restrictToRoom = false) {
-    const directions = [
-      { x: 0, y: -1 },  // 上
-      { x: 0, y: 1 },   // 下
-      { x: -1, y: 0 },  // 左
-      { x: 1, y: 0 }    // 右
-    ];
-    
-    const moves = [];
-    
-    for (const dir of directions) {
-      const newX = this.tileX + dir.x;
-      const newY = this.tileY + dir.y;
-      
-      // 检查是否可以移动
-      if (this.scene.canMoveTo(newX, newY) && !this.scene.getEnemyAt(newX, newY)) {
-        // 如果目标位置是玩家位置，跳过（应该攻击而不是移动）
-        if (newX === player.tileX && newY === player.tileY) continue;
-
-        // 若要求限制在房间内，则跳过房间外的移动
-        if (restrictToRoom && this.room) {
-          if (newX < this.room.x || newX >= this.room.x + this.room.width || newY < this.room.y || newY >= this.room.y + this.room.height) {
-            continue;
-          }
-        }
-        
-        // 计算移动后到玩家的距离
-        const newDistance = Math.abs(newX - player.tileX) + Math.abs(newY - player.tileY);
-        moves.push({ x: newX, y: newY, distance: newDistance });
-      }
-    }
-    
-    // 按距离排序
-    moves.sort((a, b) => a.distance - b.distance);
-    
-    return moves;
-  }
+  // 基于格子的旧逻辑已废弃，改为像素级移动
+  getPossibleMoves() { return []; }
 
   /**
-   * 设置移动目标（瓦片），开始沿朝向平滑移动
+   * 设置移动目标（像素坐标）
    */
-  setMoveTarget(tileX, tileY) {
-    this.moveTarget = { tileX, tileY };
+  setMoveTargetPixel(x, y) {
+    this.moveTarget = { x, y };
   }
 
   /**
@@ -227,8 +167,6 @@ export default class Enemy extends Entity {
    */
   stopMovement() {
     this.moveTarget = null;
-    this.velocity.x = 0;
-    this.velocity.y = 0;
   }
 
   /**
@@ -239,8 +177,8 @@ export default class Enemy extends Entity {
     if (!this.moveTarget || !this.isAlive) return;
 
     const dt = delta / 1000;
-    const targetPixelX = this.moveTarget.tileX * TILE_SIZE + TILE_SIZE / 2;
-    const targetPixelY = this.moveTarget.tileY * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY;
+    const targetPixelX = this.moveTarget.x;
+    const targetPixelY = this.moveTarget.y;
 
     const dx = targetPixelX - this.pixelX;
     const dy = targetPixelY - this.pixelY;
@@ -250,8 +188,8 @@ export default class Enemy extends Entity {
       // 抵达
       this.pixelX = targetPixelX;
       this.pixelY = targetPixelY;
-      this.tileX = this.moveTarget.tileX;
-      this.tileY = this.moveTarget.tileY;
+      this.tileX = Math.floor(this.pixelX / TILE_SIZE);
+      this.tileY = Math.floor(this.pixelY / TILE_SIZE);
       this.sprite.setPosition(this.pixelX, this.pixelY);
       this.stopMovement();
       return;

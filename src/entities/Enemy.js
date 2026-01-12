@@ -195,8 +195,28 @@ export default class Enemy extends Entity {
     if (!this.moveTarget || !this.isAlive) return;
 
     const dt = delta / 1000;
-    const targetPixelX = this.moveTarget.x;
-    const targetPixelY = this.moveTarget.y;
+    // 根据 AI 状态决定实时目标（实现决策/运动分离）
+    let targetPixelX = this.moveTarget.x;
+    let targetPixelY = this.moveTarget.y;
+
+    try {
+      const player = this.scene && this.scene.player;
+      if (player && player.isAlive) {
+        if (this.aiState === 'chase' || this.aiState === 'approach') {
+          // 持续追踪玩家像素位置
+          targetPixelX = player.pixelX;
+          targetPixelY = player.pixelY;
+        } else if (this.aiState === 'retreat') {
+          // 远离玩家一个小偏移量（朝相反方向移动）
+          const vx = this.pixelX - player.pixelX;
+          const vy = this.pixelY - player.pixelY;
+          const vlen = Math.max(0.001, Math.sqrt(vx*vx + vy*vy));
+          const awayDist = TILE_SIZE * 1.2;
+          targetPixelX = this.pixelX + (vx / vlen) * awayDist;
+          targetPixelY = this.pixelY + (vy / vlen) * awayDist;
+        }
+      }
+    } catch (e) {}
 
     const dx = targetPixelX - this.pixelX;
     const dy = targetPixelY - this.pixelY;

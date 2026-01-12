@@ -92,15 +92,32 @@ export default class Enemy extends Entity {
       await this.idle();
     }
   }
-        // 随机方向小位移（0.6格距离），保持像素移动
-        const angle = Math.random() * Math.PI * 2;
-        const distance = TILE_SIZE * 0.6;
-        const targetX = this.pixelX + Math.cos(angle) * distance;
-        const targetY = this.pixelY + Math.sin(angle) * distance;
-        this.setMoveTargetPixel(targetX, targetY);
+  /**
+   * 攻击玩家
+   * @param {Player} player 
+   */
+  async attackPlayer(player) {
+    this.aiState = 'attack';
+    // 攻击前先停下
+    this.stopMovement();
+
+    // 攻击动画（短冲）
+    const dx = player.tileX - this.tileX;
+    const dy = player.tileY - this.tileY;
+    await new Promise(resolve => {
+      this.scene.tweens.add({
+        targets: this.sprite,
+        x: this.sprite.x + dx * 8,
+        y: this.sprite.y + dy * 8,
+        duration: 50,
+        yoyo: true,
+        onComplete: resolve
+      });
+    });
+
     // 造成伤害
     const damage = player.takeDamage(this.attack);
-    
+
     // 显示伤害数字
     this.scene.events.emit('showDamage', {
       x: player.sprite.x,
@@ -108,9 +125,10 @@ export default class Enemy extends Entity {
       damage: damage,
       isHeal: false
     });
-    
+
     this.scene.events.emit('showMessage', `${this.name} 攻击灵梦，造成 ${damage} 点伤害！`);
   }
+
 
   /**
    * 追逐玩家
@@ -247,7 +265,7 @@ export default class Enemy extends Entity {
         }
 
         if (this.scene.canMoveTo(newX, newY) && !this.scene.getEnemyAt(newX, newY)) {
-          this.setMoveTarget(newX, newY);
+          this.setMoveTargetPixel(newX * TILE_SIZE + TILE_SIZE / 2, newY * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY);
           break;
         }
       }

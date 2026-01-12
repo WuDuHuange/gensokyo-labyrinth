@@ -94,7 +94,8 @@ export default class DanmakuFairy extends Enemy {
       const newY = this.tileY + dir.y;
       
       if (this.scene.canMoveTo(newX, newY) && !this.scene.getEnemyAt(newX, newY)) {
-        await this.moveTo(newX, newY);
+        // 使用像素目标替代格子瞬移
+        this.setMoveTargetPixel(newX * TILE_SIZE + TILE_SIZE / 2, newY * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY);
         return;
       }
     }

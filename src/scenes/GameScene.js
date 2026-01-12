@@ -1245,6 +1245,14 @@ export default class GameScene extends Phaser.Scene {
       try { this.player.updateSkills(delta); } catch (e) {}
     }
 
+    // 敌人自由移动更新（逐帧像素移动）
+    if (this.enemies && this.enemies.length > 0) {
+      for (const enemy of this.enemies) {
+        if (!enemy || !enemy.isAlive) continue;
+        try { enemy.updateFreeMove(delta); } catch (e) {}
+      }
+    }
+
     // 基于时间缩放的自动射击节奏
     const scaledDelta = this.timeManager ? this.timeManager.getScaledDelta(delta) : delta;
     

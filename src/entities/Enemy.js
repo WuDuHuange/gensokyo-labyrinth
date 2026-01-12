@@ -30,6 +30,11 @@ export default class Enemy extends Entity {
     this.danmakuDamage = config.danmakuDamage || Math.floor((config.attack || 10) * 0.6);
     this.currentCooldown = 0;
     this.isCharging = false; // 是否正在充能
+
+    // 自由移动参数（像素移动而非格子跳步）
+    this.moveSpeed = config.moveSpeed || this.speed || 100; // 像素/秒
+    this.velocity = { x: 0, y: 0 };
+    this.moveTarget = null; // {tileX, tileY}
   }
 
   /**
@@ -95,6 +100,8 @@ export default class Enemy extends Entity {
    */
   async attackPlayer(player) {
     this.aiState = 'attack';
+    // 攻击前先停下
+    this.stopMovement();
     
     // 攻击动画
     const dx = player.tileX - this.tileX;
@@ -136,7 +143,7 @@ export default class Enemy extends Entity {
     if (path && path.length > 1) {
       // 路径第一个是当前位置，第二个为下一步
       const next = path[1];
-      await this.moveTo(next.x, next.y, false);
+      this.setMoveTarget(next.x, next.y);
       return;
     }
 
@@ -145,7 +152,7 @@ export default class Enemy extends Entity {
     const moves = this.getPossibleMoves(player, restrictToRoom);
     if (moves.length > 0) {
       const bestMove = moves[0];
-      await this.moveTo(bestMove.x, bestMove.y, false);
+      this.setMoveTarget(bestMove.x, bestMove.y);
     }
   }
 
@@ -157,7 +164,7 @@ export default class Enemy extends Entity {
     // 跳过第 0 个（当前格）
     for (let i = 1; i < path.length; i++) {
       const step = path[i];
-      await this.moveTo(step.x, step.y, false);
+      this.setMoveTarget(step.x, step.y);
     }
   }
 
@@ -209,6 +216,71 @@ export default class Enemy extends Entity {
   }
 
   /**
+   * 设置移动目标（瓦片），开始沿朝向平滑移动
+   */
+  setMoveTarget(tileX, tileY) {
+    this.moveTarget = { tileX, tileY };
+  }
+
+  /**
+   * 停止移动
+   */
+  stopMovement() {
+    this.moveTarget = null;
+    this.velocity.x = 0;
+    this.velocity.y = 0;
+  }
+
+  /**
+   * 自由移动更新（每帧）
+   * @param {number} delta - 毫秒
+   */
+  updateFreeMove(delta) {
+    if (!this.moveTarget || !this.isAlive) return;
+
+    const dt = delta / 1000;
+    const targetPixelX = this.moveTarget.tileX * TILE_SIZE + TILE_SIZE / 2;
+    const targetPixelY = this.moveTarget.tileY * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY;
+
+    const dx = targetPixelX - this.pixelX;
+    const dy = targetPixelY - this.pixelY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 1) {
+      // 抵达
+      this.pixelX = targetPixelX;
+      this.pixelY = targetPixelY;
+      this.tileX = this.moveTarget.tileX;
+      this.tileY = this.moveTarget.tileY;
+      this.sprite.setPosition(this.pixelX, this.pixelY);
+      this.stopMovement();
+      return;
+    }
+
+    const step = this.moveSpeed * dt;
+    const ratio = step >= dist ? 1 : step / dist;
+    const nextX = this.pixelX + dx * ratio;
+    const nextY = this.pixelY + dy * ratio;
+
+    const nextTileX = Math.floor(nextX / TILE_SIZE);
+    const nextTileY = Math.floor(nextY / TILE_SIZE);
+
+    // 碰撞与敌人占位检查
+    const blocked = !this.scene.canMoveTo(nextTileX, nextTileY);
+    const enemyBlocking = this.scene.getEnemyAt(nextTileX, nextTileY);
+    if (blocked || (enemyBlocking && enemyBlocking !== this)) {
+      this.stopMovement();
+      return;
+    }
+
+    this.pixelX = nextX;
+    this.pixelY = nextY;
+    this.tileX = nextTileX;
+    this.tileY = nextTileY;
+    this.sprite.setPosition(this.pixelX, this.pixelY);
+  }
+
+  /**
    * 空闲行为
    */
   async idle() {
@@ -237,7 +309,7 @@ export default class Enemy extends Entity {
         }
 
         if (this.scene.canMoveTo(newX, newY) && !this.scene.getEnemyAt(newX, newY)) {
-          await this.moveTo(newX, newY, false);
+          this.setMoveTarget(newX, newY);
           break;
         }
       }
@@ -422,6 +494,7 @@ export default class Enemy extends Entity {
    * 死亡时释放殉爆弹幕
    */
   die() {
+    this.stopMovement();
     // 如果启用弹幕，死亡时放出小规模扩散弹
     if (this.danmakuEnabled && this.scene.bulletManager) {
       this.scene.bulletManager.fireRing(

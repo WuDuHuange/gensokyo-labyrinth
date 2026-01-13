@@ -113,6 +113,16 @@ export default class Player extends Entity {
    * 创建判定点指示器（显示在角色中心）
    */
   createHitboxIndicator() {
+    // 销毁旧的指示器（防止重复创建）
+    if (this.hitboxIndicator) {
+      try { this.hitboxIndicator.destroy(); } catch (e) {}
+      this.hitboxIndicator = null;
+    }
+    if (this.grazeRing) {
+      try { this.grazeRing.destroy(); } catch (e) {}
+      this.grazeRing = null;
+    }
+    
     // 延迟一帧创建，确保精灵尺寸已计算完成
     this.scene.time.delayedCall(1, () => {
       const center = this.getHitboxCenter();
@@ -260,13 +270,16 @@ export default class Player extends Entity {
     let newPixelX = this.pixelX + this.velocity.x * dt;
     let newPixelY = this.pixelY + this.velocity.y * dt;
 
-    // 碰撞检测：检查新位置对应的 tile 是否可通行
-    const newTileX = Math.floor(newPixelX / TILE_SIZE);
-    const newTileY = Math.floor(newPixelY / TILE_SIZE);
+    // 身体中心的偏移（用于碰撞检测）
+    const bodyOffsetY = -(this.sprite.displayHeight || 32) * 0.5;
+    
+    // 用身体中心而不是脚底来检测 tile 碰撞
+    const bodyCenterY = newPixelY + bodyOffsetY;
+    const currentBodyCenterY = this.pixelY + bodyOffsetY;
 
     // 检查水平方向碰撞
     const testTileX = Math.floor((this.pixelX + this.velocity.x * dt) / TILE_SIZE);
-    if (!this.scene.canMoveTo(testTileX, this.tileY)) {
+    if (!this.scene.canMoveTo(testTileX, Math.floor(currentBodyCenterY / TILE_SIZE))) {
       // 水平方向撞墙，停止水平移动
       newPixelX = this.pixelX;
       // 尝试开门
@@ -274,7 +287,7 @@ export default class Player extends Entity {
     }
 
     // 检查垂直方向碰撞
-    const testTileY = Math.floor((this.pixelY + this.velocity.y * dt) / TILE_SIZE);
+    const testTileY = Math.floor((currentBodyCenterY + this.velocity.y * dt) / TILE_SIZE);
     if (!this.scene.canMoveTo(this.tileX, testTileY)) {
       // 垂直方向撞墙，停止垂直移动
       newPixelY = this.pixelY;
@@ -284,10 +297,11 @@ export default class Player extends Entity {
 
     // 检查对角碰撞
     const finalTileX = Math.floor(newPixelX / TILE_SIZE);
-    const finalTileY = Math.floor(newPixelY / TILE_SIZE);
+    const finalBodyCenterY = newPixelY + bodyOffsetY;
+    const finalTileY = Math.floor(finalBodyCenterY / TILE_SIZE);
     if (!this.scene.canMoveTo(finalTileX, finalTileY)) {
       // 对角方向不可通行，保持原位置
-      if (this.scene.canMoveTo(finalTileX, this.tileY)) {
+      if (this.scene.canMoveTo(finalTileX, Math.floor(currentBodyCenterY / TILE_SIZE))) {
         newPixelY = this.pixelY; // 只允许水平移动
       } else if (this.scene.canMoveTo(this.tileX, finalTileY)) {
         newPixelX = this.pixelX; // 只允许垂直移动
@@ -602,6 +616,9 @@ export default class Player extends Entity {
   autoFire() {
     if (!this.scene.bulletManager) return;
 
+    // 获取身体中心作为子弹发射点
+    const firePos = this.getHitboxCenter();
+
     // 找到最近的敌人
     let nearestEnemy = null;
     let nearestDist = Infinity;
@@ -618,18 +635,20 @@ export default class Player extends Entity {
     // 发射方向
     let targetX, targetY;
     if (nearestEnemy) {
-      targetX = nearestEnemy.pixelX;
-      targetY = nearestEnemy.pixelY;
+      // 瞄准敌人身体中心
+      const enemyCenter = nearestEnemy.getHitboxCenter ? nearestEnemy.getHitboxCenter() : { x: nearestEnemy.pixelX, y: nearestEnemy.pixelY };
+      targetX = enemyCenter.x;
+      targetY = enemyCenter.y;
     } else {
       // 朝面朝方向发射
-      targetX = this.pixelX + this.facing.x * 100;
-      targetY = this.pixelY + this.facing.y * 100;
+      targetX = firePos.x + this.facing.x * 100;
+      targetY = firePos.y + this.facing.y * 100;
     }
 
     // 发射御札
     this.scene.bulletManager.fireAimed(
-      this.pixelX,
-      this.pixelY,
+      firePos.x,
+      firePos.y,
       targetX,
       targetY,
       200, // 玩家子弹速度更快

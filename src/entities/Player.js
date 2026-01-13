@@ -392,9 +392,11 @@ export default class Player extends Entity {
     // 开始冲刺标记（用于避免冲刺造成伤害）
     this.isDashing = true;
 
-    // 视觉效果：残影与镜头轻微震动
-    if (this.scene.screenEffects) this.scene.screenEffects.createAfterImage(this.sprite, 0.5, 220);
-    try { this.scene.cameras.main.shake(120, 0.005); } catch (e) {}
+    // 视觉效果：残影 + 粒子特效（不再使用摄像机抖动）
+    if (this.scene.screenEffects) {
+      this.scene.screenEffects.createAfterImage(this.sprite, 0.5, 220);
+      this.scene.screenEffects.createDashParticles(this.sprite, { count: 14, spread: 20, color: 0xffeecc, duration: 340 });
+    }
     try { if (this.scene.sound) this.scene.sound.play('sfx_dash', { volume: 0.25 }); } catch (e) {}
 
     // 小位移动画（短时间补间）

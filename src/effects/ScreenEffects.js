@@ -387,6 +387,42 @@ export default class ScreenEffects {
     this.setBrightness(this.currentBrightness);
     this.setVignette(this.currentVignette);
   }
+
+  /**
+   * 创建冲刺粒子（简单圆点粒子效果）
+   * @param {Phaser.GameObjects.Sprite} sprite
+   * @param {object} options
+   */
+  createDashParticles(sprite, options = {}) {
+    try {
+      const count = options.count || 12;
+      const spread = options.spread || 18; // pixels
+      const color = options.color || 0xffffff;
+      const duration = options.duration || 300;
+      const depth = (sprite.depth || 10) - 2;
+
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.random() * Math.PI * 2);
+        const dist = Math.random() * spread;
+        const px = sprite.x + Math.cos(angle) * dist;
+        const py = sprite.y + Math.sin(angle) * dist;
+
+        const p = this.scene.add.circle(px, py, 3 + Math.random() * 3, color, 1);
+        p.setDepth(depth);
+
+        this.scene.tweens.add({
+          targets: p,
+          alpha: 0,
+          scale: 0.2,
+          x: p.x + (Math.random() - 0.5) * 24,
+          y: p.y + (Math.random() - 0.5) * 24,
+          duration: duration + Math.floor(Math.random() * 120),
+          ease: 'Cubic.easeOut',
+          onComplete: () => { try { p.destroy(); } catch (e) {} }
+        });
+      }
+    } catch (e) {}
+  }
   
   /**
    * 销毁

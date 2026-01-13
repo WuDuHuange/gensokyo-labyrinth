@@ -73,10 +73,13 @@ export default class Player extends Entity {
   getHitboxCenter() {
     const sprite = this.sprite;
     if (!sprite) return { x: this.pixelX, y: this.pixelY };
-    // 判定点在精灵的视觉中心（考虑原点在底部中心的情况）
-    // 精灵原点通常是 (0.5, 1)，所以中心要往上偏移半个高度
+    // 精灵原点是 (0.5, 1) 即脚底中心，sprite.y 是脚的位置
+    // 判定点应该在人物身体中心，往上偏移半个身体高度
+    // displayHeight 是缩放后的实际高度
+    const bodyHeight = sprite.displayHeight || 32;
     const centerX = sprite.x;
-    const centerY = sprite.y - (sprite.displayHeight || 32) * 0.5;
+    // 从脚底往上偏移半个身高到达身体中心
+    const centerY = sprite.y - bodyHeight * 0.5;
     return { x: centerX, y: centerY };
   }
 
@@ -110,14 +113,17 @@ export default class Player extends Entity {
    * 创建判定点指示器（显示在角色中心）
    */
   createHitboxIndicator() {
-    const center = this.getHitboxCenter();
-    // 小红点表示实际判定点
-    this.hitboxIndicator = this.scene.add.circle(center.x, center.y, 4, 0xff0000, 0.8);
-    this.hitboxIndicator.setDepth(this.sprite.depth + 1);
-    // 外圈表示擦弹范围
-    this.grazeRing = this.scene.add.circle(center.x, center.y, 16, 0xffff00, 0);
-    this.grazeRing.setStrokeStyle(1, 0xffff00, 0.4);
-    this.grazeRing.setDepth(this.sprite.depth + 1);
+    // 延迟一帧创建，确保精灵尺寸已计算完成
+    this.scene.time.delayedCall(1, () => {
+      const center = this.getHitboxCenter();
+      // 小红点表示实际判定点
+      this.hitboxIndicator = this.scene.add.circle(center.x, center.y, 4, 0xff0000, 0.8);
+      this.hitboxIndicator.setDepth(this.sprite.depth + 1);
+      // 外圈表示擦弹范围
+      this.grazeRing = this.scene.add.circle(center.x, center.y, 16, 0xffff00, 0);
+      this.grazeRing.setStrokeStyle(1, 0xffff00, 0.4);
+      this.grazeRing.setDepth(this.sprite.depth + 1);
+    });
   }
 
   /**

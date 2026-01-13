@@ -389,8 +389,13 @@ export default class Player extends Entity {
     // 扣冷却
     this.dashCooldown = this.dashCooldownMax;
 
-    // 视觉效果：残影
+    // 开始冲刺标记（用于避免冲刺造成伤害）
+    this.isDashing = true;
+
+    // 视觉效果：残影与镜头轻微震动
     if (this.scene.screenEffects) this.scene.screenEffects.createAfterImage(this.sprite, 0.5, 220);
+    try { this.scene.cameras.main.shake(120, 0.005); } catch (e) {}
+    try { if (this.scene.sound) this.scene.sound.play('sfx_dash', { volume: 0.25 }); } catch (e) {}
 
     // 小位移动画（短时间补间）
     const targetX = targetTileX * TILE_SIZE + TILE_SIZE / 2;
@@ -430,6 +435,9 @@ export default class Player extends Entity {
     try { this.scene.checkEnterCombatRoom(); } catch (e) {}
 
     if (this.scene.timeManager) this.scene.timeManager.endAction();
+
+    // 结束冲刺标记（稍后清除以避免与冲刺动画重叠触发）
+    this.scene.time.delayedCall(60, () => { this.isDashing = false; });
 
     return true;
   }
@@ -502,6 +510,13 @@ export default class Player extends Entity {
    * 高风险高回报：能秒杀则无敌穿透，否则受到反击
    */
   async dashBash(enemy, dx, dy) {
+    // 如果处于技能冲刺期间，不造成伤害（穿透）
+    if (this.isDashing) {
+      // 仅做视觉效果并返回
+      if (this.scene.screenEffects) this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 200);
+      return;
+    }
+
     const attackValue = this.getEffectiveAttack();
     const dashDamage = Math.floor(attackValue * 2.0); // 瞬步伤害倍率
 

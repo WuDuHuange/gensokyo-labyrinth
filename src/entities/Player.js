@@ -64,14 +64,13 @@ export default class Player extends Entity {
   }
 
   /**
-   * 计算当前贴图的视觉中心（考虑原点与缩放）
+   * 获取判定点位置（直接使用精灵位置）
    */
   getHitboxCenter() {
     const sprite = this.sprite;
     if (!sprite) return { x: this.pixelX, y: this.pixelY };
-    const centerX = sprite.x - sprite.displayWidth * (sprite.originX - 0.5);
-    const centerY = sprite.y - sprite.displayHeight * (sprite.originY - 0.5);
-    return { x: centerX, y: centerY };
+    // 判定点就在精灵位置（精灵原点通常在底部中心，判定点放在脚下）
+    return { x: sprite.x, y: sprite.y };
   }
 
   /**
@@ -285,16 +284,17 @@ export default class Player extends Entity {
       }
     }
 
-    // 检查是否碰到敌人（瞬步撞击）
+    // 检查是否碰到敌人（阻挡移动，受小额伤害）
     const enemyAtPos = this.scene.getEnemyAtPixel ? 
       this.scene.getEnemyAtPixel(newPixelX, newPixelY) :
       this.scene.getEnemyAt(Math.floor(newPixelX / TILE_SIZE), Math.floor(newPixelY / TILE_SIZE));
     
     if (enemyAtPos) {
-      // 撞击敌人
-      const dx = this.facing.x;
-      const dy = this.facing.y;
-      this.dashBash(enemyAtPos, dx, dy);
+      // 碰到敌人：受到小额伤害，阻止移动
+      const collisionDamage = Math.max(1, Math.floor((enemyAtPos.attack || 5) * 0.2));
+      this.takeDamage(collisionDamage);
+      this.scene.events.emit('showMessage', `撞到了 ${enemyAtPos.name}！`);
+      // 不更新位置，保持原地
       return;
     }
 
@@ -361,6 +361,12 @@ export default class Player extends Entity {
   async tryDash() {
     if (!this.isAlive) return false;
     if (this.dashCooldown > 0) return false; // 未就绪
+    if (this.isDashing) return false; // 防止重复冲刺
+
+    // 冲刺前停止自由移动（避免冲突）
+    if (this.isMovingFree) {
+      this.stopFreeMove();
+    }
 
     // 必须有朝向
     const dx = this.facing.x || 0;
@@ -401,9 +407,6 @@ export default class Player extends Entity {
       this.scene.screenEffects.createAfterImage(this.sprite, 0.7, 280);
     }
     try { if (this.scene.sound) this.scene.sound.play('sfx_dash', { volume: 0.25 }); } catch (e) {}
-
-    // 通知时间管理器开始行动（如果存在）
-    if (this.scene.timeManager) this.scene.timeManager.startAction();
 
     // 用于 onUpdate 的帧计数器
     let frameCount = 0;
@@ -460,8 +463,6 @@ export default class Player extends Entity {
     try { this.scene.checkTraps(this); } catch (e) {}
     try { this.scene.checkEnterBossRoom(); } catch (e) {}
     try { this.scene.checkEnterCombatRoom(); } catch (e) {}
-
-    if (this.scene.timeManager) this.scene.timeManager.endAction();
 
     // 终点残影
     if (this.scene.screenEffects) {
@@ -540,101 +541,36 @@ export default class Player extends Entity {
   }
 
   /**
-   * 瞬步撞击（Dash Bash）
-   * 高风险高回报：能秒杀则无敌穿透，否则受到反击
+   * 撞击敌人：玩家受到小额伤害并弹回
    */
   async dashBash(enemy, dx, dy) {
-    // 如果处于技能冲刺期间，不造成伤害（穿透）
+    // 如果处于技能冲刺期间，忽略碰撞
     if (this.isDashing) {
-      // 仅做视觉效果并返回
-      if (this.scene.screenEffects) this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 200);
       return;
     }
 
-    const attackValue = this.getEffectiveAttack();
-    const dashDamage = Math.floor(attackValue * 2.0); // 瞬步伤害倍率
-
-    // 判断是否能秒杀
-    const canKill = enemy.hp <= dashDamage;
-
-    // 通知时间管理器开始行动
-    if (this.scene.timeManager) {
-      this.scene.timeManager.startAction();
-    }
-
-    // 瞬步动画：化作光冲向敌人
+    // 记录起点
     const startX = this.sprite.x;
     const startY = this.sprite.y;
-    const targetX = enemy.sprite.x;
-    const targetY = enemy.sprite.y;
 
-    // 残影效果
-    if (this.scene.screenEffects) {
-      this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 300);
-    }
+    // 受到小额碰撞伤害（敌人攻击力的 20%，最少 1 点）
+    const collisionDamage = Math.max(1, Math.floor((enemy.attack || 5) * 0.2));
+    this.takeDamage(collisionDamage);
 
-    // 冲刺动画
+    // 显示碰撞提示
+    this.scene.events.emit('showMessage', `撞到了 ${enemy.name}！受到 ${collisionDamage} 点伤害`);
+
+    // 弹回动画
     await new Promise(resolve => {
       this.scene.tweens.add({
         targets: this.sprite,
-        x: targetX,
-        y: targetY,
-        duration: 100,
-        ease: 'Quad.easeIn',
+        x: startX - dx * 8,
+        y: startY - dy * 8,
+        duration: 80,
+        yoyo: true,
         onComplete: resolve
       });
     });
-
-    // 造成伤害
-    const damage = enemy.takeDamage(dashDamage);
-
-    // 显示伤害数字
-    this.scene.events.emit('showDamage', {
-      x: enemy.sprite.x,
-      y: enemy.sprite.y - 20,
-      damage: damage,
-      isHeal: false,
-      isCrit: true // 瞬步总是显示为暴击样式
-    });
-
-    if (canKill) {
-      // 秒杀：无敌穿透
-      this.scene.events.emit('showMessage', `瞬步突破！击败了 ${enemy.name}！`);
-      this.scene.removeEnemy(enemy);
-
-      // 穿透到敌人后方
-      const behindX = this.tileX + dx * 2;
-      const behindY = this.tileY + dy * 2;
-
-      if (this.scene.canMoveTo(behindX, behindY)) {
-        await this.moveTo(behindX, behindY);
-      } else {
-        // 无法穿透，停在敌人位置
-        await this.moveTo(this.tileX + dx, this.tileY + dy);
-      }
-    } else {
-      // 未能秒杀：受到反击
-      const counterDamage = Math.floor(enemy.attack * 0.5);
-      this.takeDamage(counterDamage);
-
-      this.scene.events.emit('showMessage', `瞬步被挡！反击造成 ${counterDamage} 伤害！`);
-
-      // 弹回原位
-      await new Promise(resolve => {
-        this.scene.tweens.add({
-          targets: this.sprite,
-          x: startX,
-          y: startY,
-          duration: 80,
-          onComplete: resolve
-        });
-      });
-    }
-
-    // 通知时间管理器结束行动
-    if (this.scene.timeManager) {
-      this.scene.timeManager.endAction();
-    }
   }
 
   /**

@@ -392,24 +392,21 @@ export default class Player extends Entity {
     // 开始冲刺标记（用于避免冲刺造成伤害）
     this.isDashing = true;
 
-    // 视觉效果：残影 + 轨迹粒子（循环产生粒子与间歇残影）
-    if (this.scene.screenEffects) {
-      // 立即生成一帧残影
-      this.scene.screenEffects.createAfterImage(this.sprite, 0.55, 220);
-      // 启动轨迹生成器，稍后停止
-      try {
-        if (this._dashTrail && this._dashTrail.stop) this._dashTrail.stop();
-      } catch (e) {}
-      this._dashTrail = this.scene.screenEffects.createDashTrail(this.sprite, { interval: 36, color: 0xffeecc, life: 320, afterImageInterval: 90 });
-    }
-    try { if (this.scene.sound) this.scene.sound.play('sfx_dash', { volume: 0.25 }); } catch (e) {}
-
-    // 小位移动画（短时间补间）
+    // 小位移动画目标
     const targetX = targetTileX * TILE_SIZE + TILE_SIZE / 2;
     const targetY = targetTileY * TILE_SIZE + TILE_SIZE / 2 + this.spriteOffsetY;
 
+    // 起点残影
+    if (this.scene.screenEffects) {
+      this.scene.screenEffects.createAfterImage(this.sprite, 0.7, 280);
+    }
+    try { if (this.scene.sound) this.scene.sound.play('sfx_dash', { volume: 0.25 }); } catch (e) {}
+
     // 通知时间管理器开始行动（如果存在）
     if (this.scene.timeManager) this.scene.timeManager.startAction();
+
+    // 用于 onUpdate 的帧计数器
+    let frameCount = 0;
 
     await new Promise(resolve => {
       try {
@@ -417,8 +414,31 @@ export default class Player extends Entity {
           targets: this.sprite,
           x: targetX,
           y: targetY,
-          duration: 120,
+          duration: 140, // 稍长一点让轨迹更明显
           ease: 'Quad.easeOut',
+          onUpdate: () => {
+            frameCount++;
+            // 每帧都生成粒子（轨迹点）
+            if (this.scene.screenEffects) {
+              const px = this.sprite.x + (Math.random() - 0.5) * 6;
+              const py = this.sprite.y + (Math.random() - 0.5) * 6;
+              const p = this.scene.add.circle(px, py, 4 + Math.random() * 3, 0xaaddff, 0.9);
+              p.setDepth((this.sprite.depth || 10) - 1);
+              p.setBlendMode(Phaser.BlendModes.ADD);
+              this.scene.tweens.add({
+                targets: p,
+                alpha: 0,
+                scale: 0.3,
+                duration: 200 + Math.random() * 100,
+                ease: 'Quad.easeOut',
+                onComplete: () => { try { p.destroy(); } catch (e) {} }
+              });
+            }
+            // 每 2 帧生成一个残影
+            if (frameCount % 2 === 0 && this.scene.screenEffects) {
+              this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 200);
+            }
+          },
           onComplete: resolve
         });
       } catch (e) { // 若 tween 失败则直接瞬移
@@ -426,9 +446,6 @@ export default class Player extends Entity {
         resolve();
       }
     });
-
-    // tween 完成后立即停止轨迹产生器（确保轨迹覆盖 tween 持续时间）
-    try { if (this._dashTrail && this._dashTrail.stop) this._dashTrail.stop(); } catch (e) {}
 
     // 更新玩家像素与 tile 坐标
     this.pixelX = targetX;
@@ -446,12 +463,14 @@ export default class Player extends Entity {
 
     if (this.scene.timeManager) this.scene.timeManager.endAction();
 
+    // 终点残影
+    if (this.scene.screenEffects) {
+      this.scene.screenEffects.createAfterImage(this.sprite, 0.7, 280);
+    }
+
     // 结束冲刺标记（稍后清除以避免与冲刺动画重叠触发）
-    this.scene.time.delayedCall(60, () => {
+    this.scene.time.delayedCall(80, () => {
       this.isDashing = false;
-      try { this._dashTrail = null; } catch (e) {}
-      // 最终残影
-      try { if (this.scene.screenEffects) this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 220); } catch (e) {}
     });
 
     return true;

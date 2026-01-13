@@ -126,12 +126,12 @@ export default class Player extends Entity {
     // 延迟一帧创建，确保精灵尺寸已计算完成
     this.scene.time.delayedCall(1, () => {
       const center = this.getHitboxCenter();
-      // 小红点表示实际判定点
-      this.hitboxIndicator = this.scene.add.circle(center.x, center.y, 4, 0xff0000, 0.8);
+      // 白色小点表示实际判定点
+      this.hitboxIndicator = this.scene.add.circle(center.x, center.y, 4, 0xffffff, 0.9);
       this.hitboxIndicator.setDepth(this.sprite.depth + 1);
       // 外圈表示擦弹范围
-      this.grazeRing = this.scene.add.circle(center.x, center.y, 16, 0xffff00, 0);
-      this.grazeRing.setStrokeStyle(1, 0xffff00, 0.4);
+      this.grazeRing = this.scene.add.circle(center.x, center.y, 16, 0xffffff, 0);
+      this.grazeRing.setStrokeStyle(1, 0xffffff, 0.3);
       this.grazeRing.setDepth(this.sprite.depth + 1);
     });
   }
@@ -329,8 +329,26 @@ export default class Player extends Entity {
           this.takeDamage(collisionDamage);
           this.scene.events.emit('showMessage', `撞到了 ${enemyAtPos.name}！`);
           this.collisionCooldown = this.collisionCooldownMax;
+          
+          // 弹开效果：从敌人位置反向推开
+          const pushDirX = this.pixelX - enemyAtPos.pixelX;
+          const pushDirY = this.pixelY - enemyAtPos.pixelY;
+          const pushLen = Math.sqrt(pushDirX * pushDirX + pushDirY * pushDirY) || 1;
+          const pushDist = 20; // 弹开距离
+          const pushX = this.pixelX + (pushDirX / pushLen) * pushDist;
+          const pushY = this.pixelY + (pushDirY / pushLen) * pushDist;
+          
+          // 检查弹开位置是否可通行
+          const pushTileX = Math.floor(pushX / TILE_SIZE);
+          const pushTileY = Math.floor((pushY + bodyOffsetY) / TILE_SIZE);
+          if (this.scene.canMoveTo(pushTileX, pushTileY)) {
+            this.pixelX = pushX;
+            this.pixelY = pushY;
+            this.sprite.setPosition(this.pixelX, this.pixelY);
+            this.updateHitboxIndicator();
+          }
         }
-        // 不更新位置，保持原地
+        // 不继续本次移动
         return;
       }
     }

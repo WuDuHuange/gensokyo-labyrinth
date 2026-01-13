@@ -194,7 +194,10 @@ export default class Enemy extends Entity {
   updateFreeMove(delta) {
     if (!this.moveTarget || !this.isAlive) return;
 
-    const dt = delta / 1000;
+    // 应用时间流速缩放
+    const timeScale = this.scene.timeManager ? this.scene.timeManager.getScale() : 1;
+    const scaledDelta = delta * timeScale;
+    const dt = scaledDelta / 1000;
     // 根据 AI 状态决定实时目标（实现决策/运动分离）
     let targetPixelX = this.moveTarget.x;
     let targetPixelY = this.moveTarget.y;

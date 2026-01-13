@@ -311,10 +311,12 @@ export default class Player extends Entity {
       }
     }
 
-    // 检查是否碰到敌人
+    // 检查是否碰到敌人（用身体中心位置）
+    const newBodyCenterX = newPixelX;
+    const newBodyCenterY = newPixelY + bodyOffsetY;
     const enemyAtPos = this.scene.getEnemyAtPixel ? 
-      this.scene.getEnemyAtPixel(newPixelX, newPixelY) :
-      this.scene.getEnemyAt(Math.floor(newPixelX / TILE_SIZE), Math.floor(newPixelY / TILE_SIZE));
+      this.scene.getEnemyAtPixel(newBodyCenterX, newBodyCenterY) :
+      this.scene.getEnemyAt(Math.floor(newBodyCenterX / TILE_SIZE), Math.floor(newBodyCenterY / TILE_SIZE));
     
     if (enemyAtPos) {
       // 冲刺时直接穿过敌人
@@ -341,11 +343,12 @@ export default class Player extends Entity {
     // 更新判定点显示
     this.updateHitboxIndicator();
 
-    // 更新 tile 坐标
+    // 更新 tile 坐标（用身体中心而不是脚底）
+    const bodyCenter = this.getHitboxCenter();
     const oldTileX = this.tileX;
     const oldTileY = this.tileY;
-    this.tileX = Math.floor(this.pixelX / TILE_SIZE);
-    this.tileY = Math.floor(this.pixelY / TILE_SIZE);
+    this.tileX = Math.floor(bodyCenter.x / TILE_SIZE);
+    this.tileY = Math.floor(bodyCenter.y / TILE_SIZE);
 
     // 如果 tile 改变了，触发相关检查
     if (oldTileX !== this.tileX || oldTileY !== this.tileY) {

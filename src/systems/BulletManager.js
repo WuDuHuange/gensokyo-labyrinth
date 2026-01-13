@@ -425,9 +425,10 @@ export default class BulletManager {
   checkPlayerCollision(player) {
     if (!player || !player.sprite) return { hit: null, grazed: [] };
     
-    // 玩家 hitbox 中心（像素坐标）
-    const px = player.sprite.x;
-    const py = player.sprite.y;
+    // 玩家 hitbox 中心（身体中心，不是脚底）
+    const hitboxCenter = player.getHitboxCenter ? player.getHitboxCenter() : { x: player.sprite.x, y: player.sprite.y };
+    const px = hitboxCenter.x;
+    const py = hitboxCenter.y;
     const playerRadius = 8; // 玩家碰撞半径（较小，便于躲避）
     
     let hitBullet = null;

@@ -198,12 +198,15 @@ export default class Enemy extends Entity {
     const timeScale = this.scene.timeManager ? this.scene.timeManager.getScale() : 1;
     const scaledDelta = delta * timeScale;
     const dt = scaledDelta / 1000;
+    
     // 根据 AI 状态决定实时目标（实现决策/运动分离）
     let targetPixelX = this.moveTarget.x;
     let targetPixelY = this.moveTarget.y;
 
+    const player = this.scene && this.scene.player;
+    const minAttackDist = 24; // 与玩家保持的最小距离（不会完全贴上去）
+
     try {
-      const player = this.scene && this.scene.player;
       if (player && player.isAlive) {
         if (this.aiState === 'chase' || this.aiState === 'approach') {
           // 持续追踪玩家像素位置
@@ -224,6 +227,19 @@ export default class Enemy extends Entity {
     const dx = targetPixelX - this.pixelX;
     const dy = targetPixelY - this.pixelY;
     const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // 如果追踪玩家且已经足够近，停止移动（保持攻击距离）
+    if (player && player.isAlive && (this.aiState === 'chase' || this.aiState === 'approach')) {
+      const distToPlayer = Math.sqrt(
+        Math.pow(this.pixelX - player.pixelX, 2) + 
+        Math.pow(this.pixelY - player.pixelY, 2)
+      );
+      if (distToPlayer <= minAttackDist) {
+        // 已在攻击范围内，停止移动
+        this.stopMovement();
+        return;
+      }
+    }
 
     if (dist < 1) {
       // 抵达
@@ -250,6 +266,17 @@ export default class Enemy extends Entity {
     if (blocked || (enemyBlocking && enemyBlocking !== this)) {
       this.stopMovement();
       return;
+    }
+
+    // 检测是否会进入玩家所在 tile（避免完全重叠）
+    if (player && player.isAlive) {
+      const playerTileX = player.tileX;
+      const playerTileY = player.tileY;
+      if (nextTileX === playerTileX && nextTileY === playerTileY) {
+        // 不进入玩家所在格子
+        this.stopMovement();
+        return;
+      }
     }
 
     this.pixelX = nextX;

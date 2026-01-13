@@ -314,25 +314,56 @@ export default class Player extends Entity {
     // 检查是否碰到敌人（用身体中心位置）
     const newBodyCenterX = newPixelX;
     const newBodyCenterY = newPixelY + bodyOffsetY;
-    const enemyAtPos = this.scene.getEnemyAtPixel ? 
+    const currentBodyCenterX = this.pixelX;
+    const currentBodyCenterY = this.pixelY + bodyOffsetY;
+    
+    const enemyAtNewPos = this.scene.getEnemyAtPixel ? 
       this.scene.getEnemyAtPixel(newBodyCenterX, newBodyCenterY) :
       this.scene.getEnemyAt(Math.floor(newBodyCenterX / TILE_SIZE), Math.floor(newBodyCenterY / TILE_SIZE));
     
-    if (enemyAtPos) {
+    const enemyAtCurrentPos = this.scene.getEnemyAtPixel ?
+      this.scene.getEnemyAtPixel(currentBodyCenterX, currentBodyCenterY) :
+      this.scene.getEnemyAt(Math.floor(currentBodyCenterX / TILE_SIZE), Math.floor(currentBodyCenterY / TILE_SIZE));
+    
+    if (enemyAtNewPos) {
       // 冲刺时直接穿过敌人
       if (this.isDashing) {
         // 不阻挡，继续移动
+      } else if (enemyAtCurrentPos) {
+        // 玩家已经在敌人重叠区域内，检查是否在远离敌人
+        const currentDist = Math.sqrt(
+          Math.pow(currentBodyCenterX - enemyAtCurrentPos.pixelX, 2) +
+          Math.pow(currentBodyCenterY - enemyAtCurrentPos.pixelY, 2)
+        );
+        const newDist = Math.sqrt(
+          Math.pow(newBodyCenterX - enemyAtCurrentPos.pixelX, 2) +
+          Math.pow(newBodyCenterY - enemyAtCurrentPos.pixelY, 2)
+        );
+        
+        if (newDist > currentDist) {
+          // 正在远离敌人，允许移动（不阻挡）
+        } else {
+          // 试图靠近敌人，阻止并弹开
+          if (this.collisionCooldown <= 0) {
+            const collisionDamage = Math.max(1, Math.floor((enemyAtNewPos.attack || 5) * 0.2));
+            this.takeDamage(collisionDamage);
+            this.scene.events.emit('showMessage', `撞到了 ${enemyAtNewPos.name}！`);
+            this.collisionCooldown = this.collisionCooldownMax;
+          }
+          return;
+        }
       } else {
+        // 玩家当前不在敌人区域，但试图进入敌人区域
         // 普通移动碰到敌人：受伤 + 弹开（有冷却）
         if (this.collisionCooldown <= 0) {
-          const collisionDamage = Math.max(1, Math.floor((enemyAtPos.attack || 5) * 0.2));
+          const collisionDamage = Math.max(1, Math.floor((enemyAtNewPos.attack || 5) * 0.2));
           this.takeDamage(collisionDamage);
-          this.scene.events.emit('showMessage', `撞到了 ${enemyAtPos.name}！`);
+          this.scene.events.emit('showMessage', `撞到了 ${enemyAtNewPos.name}！`);
           this.collisionCooldown = this.collisionCooldownMax;
           
           // 弹开效果：从敌人位置反向推开
-          const pushDirX = this.pixelX - enemyAtPos.pixelX;
-          const pushDirY = this.pixelY - enemyAtPos.pixelY;
+          const pushDirX = this.pixelX - enemyAtNewPos.pixelX;
+          const pushDirY = this.pixelY - enemyAtNewPos.pixelY;
           const pushLen = Math.sqrt(pushDirX * pushDirX + pushDirY * pushDirY) || 1;
           const pushDist = 20; // 弹开距离
           const pushX = this.pixelX + (pushDirX / pushLen) * pushDist;

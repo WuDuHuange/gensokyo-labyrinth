@@ -427,6 +427,9 @@ export default class Player extends Entity {
       }
     });
 
+    // tween 完成后立即停止轨迹产生器（确保轨迹覆盖 tween 持续时间）
+    try { if (this._dashTrail && this._dashTrail.stop) this._dashTrail.stop(); } catch (e) {}
+
     // 更新玩家像素与 tile 坐标
     this.pixelX = targetX;
     this.pixelY = targetY;
@@ -446,8 +449,6 @@ export default class Player extends Entity {
     // 结束冲刺标记（稍后清除以避免与冲刺动画重叠触发）
     this.scene.time.delayedCall(60, () => {
       this.isDashing = false;
-      // 停止粒子轨迹
-      try { if (this._dashTrail && this._dashTrail.stop) this._dashTrail.stop(); } catch (e) {}
       try { this._dashTrail = null; } catch (e) {}
       // 最终残影
       try { if (this.scene.screenEffects) this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 220); } catch (e) {}

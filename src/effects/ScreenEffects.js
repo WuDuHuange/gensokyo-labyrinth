@@ -320,23 +320,77 @@ export default class ScreenEffects {
    */
   createAfterImage(sprite, alpha = 0.5, duration = 200) {
     try {
-      const afterImage = this.scene.add.sprite(sprite.x, sprite.y, sprite.texture.key);
-      afterImage.setScale(sprite.scaleX, sprite.scaleY);
-      afterImage.setRotation(sprite.rotation);
+      const frame = sprite.frame && sprite.frame.name ? sprite.frame.name : sprite.texture.key;
+      const afterImage = this.scene.add.sprite(sprite.x, sprite.y, sprite.texture.key, sprite.frame ? sprite.frame.name : undefined);
+      afterImage.setScale(sprite.scaleX || 1, sprite.scaleY || 1);
+      afterImage.setRotation(sprite.rotation || 0);
       afterImage.setAlpha(alpha);
-      afterImage.setTint(0x8888ff);
-      afterImage.setDepth(sprite.depth - 1);
-      
+      afterImage.setTint(0xccccff);
+      afterImage.setDepth((sprite.depth || 10) - 1);
+      afterImage.setBlendMode(Phaser.BlendModes.ADD);
+
+      // 使用 scaleX/scaleY tween 而不是不存在的 scale 属性
       this.scene.tweens.add({
         targets: afterImage,
         alpha: 0,
-        scale: afterImage.scale * 0.8,
+        scaleX: (afterImage.scaleX || 1) * 0.8,
+        scaleY: (afterImage.scaleY || 1) * 0.8,
         duration: duration,
+        ease: 'Cubic.easeOut',
         onComplete: () => afterImage.destroy()
       });
-      
+
       this.afterImages.push(afterImage);
     } catch (e) {}
+  }
+
+  /**
+   * 创建冲刺轨迹（在 dash 期间循环产生小粒子与可选残影）
+   * 返回一个对象，包含 stop() 和 destroy() 方法用于结束轨迹
+   */
+  createDashTrail(sprite, options = {}) {
+    try {
+      const interval = options.interval || 40; // ms
+      const color = options.color || 0xffeecc;
+      const life = options.life || 300;
+      const depth = (sprite.depth || 10) - 2;
+      const afterImageInterval = options.afterImageInterval || 120; // ms
+
+      let tick = 0;
+      const created = [];
+
+      const timer = this.scene.time.addEvent({
+        delay: interval,
+        loop: true,
+        callback: () => {
+          tick += interval;
+          // 粒子（小圆点）
+          const p = this.scene.add.circle(sprite.x, sprite.y, 2 + Math.random() * 2, color, 1);
+          p.setDepth(depth);
+          created.push(p);
+          this.scene.tweens.add({
+            targets: p,
+            alpha: 0,
+            scale: 0.2,
+            x: p.x + (Math.random() - 0.5) * 8,
+            y: p.y + (Math.random() - 0.5) * 8,
+            duration: life + Math.floor(Math.random() * 120),
+            ease: 'Cubic.easeOut',
+            onComplete: () => { try { p.destroy(); } catch (e) {} }
+          });
+
+          // 间歇生成残影以增强视觉感
+          if (tick % afterImageInterval === 0) {
+            try { this.createAfterImage(sprite, 0.55, Math.max(180, life)); } catch (e) {}
+          }
+        }
+      });
+
+      return {
+        stop: () => { try { timer.remove(false); } catch (e) {} },
+        destroy: () => { try { timer.remove(); created.forEach(c => { try { c.destroy(); } catch (e) {} }); } catch (e) {} }
+      };
+    } catch (e) { return { stop: () => {}, destroy: () => {} }; }
   }
   
   /**

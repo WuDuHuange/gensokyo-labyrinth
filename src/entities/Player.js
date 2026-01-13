@@ -392,10 +392,15 @@ export default class Player extends Entity {
     // 开始冲刺标记（用于避免冲刺造成伤害）
     this.isDashing = true;
 
-    // 视觉效果：残影 + 粒子特效（不再使用摄像机抖动）
+    // 视觉效果：残影 + 轨迹粒子（循环产生粒子与间歇残影）
     if (this.scene.screenEffects) {
-      this.scene.screenEffects.createAfterImage(this.sprite, 0.5, 220);
-      this.scene.screenEffects.createDashParticles(this.sprite, { count: 14, spread: 20, color: 0xffeecc, duration: 340 });
+      // 立即生成一帧残影
+      this.scene.screenEffects.createAfterImage(this.sprite, 0.55, 220);
+      // 启动轨迹生成器，稍后停止
+      try {
+        if (this._dashTrail && this._dashTrail.stop) this._dashTrail.stop();
+      } catch (e) {}
+      this._dashTrail = this.scene.screenEffects.createDashTrail(this.sprite, { interval: 36, color: 0xffeecc, life: 320, afterImageInterval: 90 });
     }
     try { if (this.scene.sound) this.scene.sound.play('sfx_dash', { volume: 0.25 }); } catch (e) {}
 
@@ -439,7 +444,14 @@ export default class Player extends Entity {
     if (this.scene.timeManager) this.scene.timeManager.endAction();
 
     // 结束冲刺标记（稍后清除以避免与冲刺动画重叠触发）
-    this.scene.time.delayedCall(60, () => { this.isDashing = false; });
+    this.scene.time.delayedCall(60, () => {
+      this.isDashing = false;
+      // 停止粒子轨迹
+      try { if (this._dashTrail && this._dashTrail.stop) this._dashTrail.stop(); } catch (e) {}
+      try { this._dashTrail = null; } catch (e) {}
+      // 最终残影
+      try { if (this.scene.screenEffects) this.scene.screenEffects.createAfterImage(this.sprite, 0.6, 220); } catch (e) {}
+    });
 
     return true;
   }

@@ -59,18 +59,25 @@ export default class Player extends Entity {
     this.dashRangeTiles = 3;     // 最大位移格数
     this.dashInvulnerable = false; // dash 时是否短暂无敌（目前未启用）
 
+    // 碰撞伤害冷却（防止连续受伤）
+    this.collisionCooldown = 0;  // ms
+    this.collisionCooldownMax = 500; // 碰撞后 500ms 内不再受伤
+
     // 创建判定点显示（擦弹系统用）
     this.createHitboxIndicator();
   }
 
   /**
-   * 获取判定点位置（直接使用精灵位置）
+   * 获取判定点位置（在精灵视觉中心）
    */
   getHitboxCenter() {
     const sprite = this.sprite;
     if (!sprite) return { x: this.pixelX, y: this.pixelY };
-    // 判定点就在精灵位置（精灵原点通常在底部中心，判定点放在脚下）
-    return { x: sprite.x, y: sprite.y };
+    // 判定点在精灵的视觉中心（考虑原点在底部中心的情况）
+    // 精灵原点通常是 (0.5, 1)，所以中心要往上偏移半个高度
+    const centerX = sprite.x;
+    const centerY = sprite.y - (sprite.displayHeight || 32) * 0.5;
+    return { x: centerX, y: centerY };
   }
 
   /**
@@ -284,18 +291,26 @@ export default class Player extends Entity {
       }
     }
 
-    // 检查是否碰到敌人（阻挡移动，受小额伤害）
+    // 检查是否碰到敌人
     const enemyAtPos = this.scene.getEnemyAtPixel ? 
       this.scene.getEnemyAtPixel(newPixelX, newPixelY) :
       this.scene.getEnemyAt(Math.floor(newPixelX / TILE_SIZE), Math.floor(newPixelY / TILE_SIZE));
     
     if (enemyAtPos) {
-      // 碰到敌人：受到小额伤害，阻止移动
-      const collisionDamage = Math.max(1, Math.floor((enemyAtPos.attack || 5) * 0.2));
-      this.takeDamage(collisionDamage);
-      this.scene.events.emit('showMessage', `撞到了 ${enemyAtPos.name}！`);
-      // 不更新位置，保持原地
-      return;
+      // 冲刺时直接穿过敌人
+      if (this.isDashing) {
+        // 不阻挡，继续移动
+      } else {
+        // 普通移动碰到敌人：受伤 + 弹开（有冷却）
+        if (this.collisionCooldown <= 0) {
+          const collisionDamage = Math.max(1, Math.floor((enemyAtPos.attack || 5) * 0.2));
+          this.takeDamage(collisionDamage);
+          this.scene.events.emit('showMessage', `撞到了 ${enemyAtPos.name}！`);
+          this.collisionCooldown = this.collisionCooldownMax;
+        }
+        // 不更新位置，保持原地
+        return;
+      }
     }
 
     // 更新位置
@@ -352,6 +367,9 @@ export default class Player extends Entity {
     if (this.dashCooldown > 0) {
       this.dashCooldown = Math.max(0, this.dashCooldown - delta);
     }
+    if (this.collisionCooldown > 0) {
+      this.collisionCooldown = Math.max(0, this.collisionCooldown - delta);
+    }
   }
 
   /**
@@ -363,28 +381,27 @@ export default class Player extends Entity {
     if (this.dashCooldown > 0) return false; // 未就绪
     if (this.isDashing) return false; // 防止重复冲刺
 
+    // 在冲刺开始时保存当前朝向（防止移动改变方向影响特效）
+    const dashDirX = this.facing.x || 0;
+    const dashDirY = this.facing.y || 0;
+    if (dashDirX === 0 && dashDirY === 0) return false;
+
     // 冲刺前停止自由移动（避免冲突）
     if (this.isMovingFree) {
       this.stopFreeMove();
     }
-
-    // 必须有朝向
-    const dx = this.facing.x || 0;
-    const dy = this.facing.y || 0;
-    if (dx === 0 && dy === 0) return false;
 
     const maxSteps = this.dashRangeTiles;
     let targetTileX = this.tileX;
     let targetTileY = this.tileY;
     let found = false;
 
-    // 沿朝向逐格查找最后一个可通行格
+    // 沿朝向逐格查找最后一个可通行格（冲刺可以穿过敌人）
     for (let step = 1; step <= maxSteps; step++) {
-      const tx = this.tileX + dx * step;
-      const ty = this.tileY + dy * step;
+      const tx = this.tileX + dashDirX * step;
+      const ty = this.tileY + dashDirY * step;
       if (!this.scene.canMoveTo(tx, ty)) break;
-      // 避免传送到有敌人的格子
-      if (this.scene.getEnemyAt(tx, ty)) break;
+      // 冲刺可以穿过敌人，不再检查敌人
       targetTileX = tx;
       targetTileY = ty;
       found = true;
